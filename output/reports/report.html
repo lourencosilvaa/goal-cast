@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Previsões Futebol - 19/04/2026, 14:58 UTC</title>
+  <style>
+:root {
+  --bg: #0f172a;
+  --card-bg: #1e293b;
+  --card-border: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent: #3b82f6;
+  --green: #22c55e;
+  --yellow: #eab308;
+  --red: #ef4444;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 2rem;
+}
+
+.container { max-width: 1200px; margin: 0 auto; }
+
+.header {
+  text-align: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--card-border);
+}
+.header h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.25rem; }
+.header .subtitle { color: var(--text-muted); font-size: 0.9rem; }
+
+.section-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 2rem 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--accent);
+  display: inline-block;
+}
+
+/* Summary narrative */
+.summary-box {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.summary-box em { color: var(--text-muted); font-size: 0.8rem; }
+
+/* Match Cards */
+.matches-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+.match-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.match-card.has-value { border-color: var(--green); border-width: 2px; }
+.match-card:hover { border-color: var(--accent); }
+
+.match-header {
+  padding: 1.25rem 1.5rem;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid var(--card-border);
+}
+.match-meta { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
+.match-league {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  font-weight: 600;
+}
+.match-time { font-size: 0.8rem; color: var(--text-muted); }
+.match-teams { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 600; }
+.vs { color: var(--text-muted); font-size: 0.85rem; font-weight: 400; }
+
+.vb-badges { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.vb-badge {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.6rem;
+  border: 1.5px solid;
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+.match-body {
+  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.match-narrative {
+  padding: 1rem 1.5rem 1.25rem;
+  border-top: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.01);
+}
+.match-narrative h4 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+.match-narrative p {
+  font-size: 0.88rem;
+  line-height: 1.75;
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .match-body { grid-template-columns: 1fr; }
+  body { padding: 1rem; }
+}
+
+/* Prediction */
+.prediction-section h4, .stats-grid h4 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.prob-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+.prob-label { width: 55px; font-size: 0.8rem; color: var(--text-muted); }
+.prob-bar-bg { flex: 1; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+.prob-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.prob-value { width: 40px; text-align: right; font-size: 0.8rem; font-weight: 600; }
+
+.prediction-verdict {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.verdict-value { font-weight: 700; color: var(--accent); margin: 0 0.25rem; }
+.verdict-conf { color: var(--text-muted); }
+
+.odds-section, .look-for-section { margin-top: 1rem; }
+.odds-row { display: flex; gap: 0.5rem; }
+.odds-chip {
+  padding: 0.35rem 0.75rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.odds-chip.target { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+
+/* Stats Grid */
+.stats-grid { display: flex; flex-direction: column; gap: 1.25rem; }
+
+.stat-section {
+  padding: 0.75rem;
+  background: rgba(255,255,255,0.02);
+  border-radius: 8px;
+}
+
+.xg-display { display: flex; align-items: center; justify-content: center; gap: 1rem; font-size: 1.5rem; font-weight: 700; }
+.xg-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; }
+.xg-home { color: var(--accent); }
+.xg-away { color: var(--red); }
+.xg-total { text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+.market-rows { display: flex; flex-direction: column; gap: 0.3rem; }
+.market-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+.market-row span:first-child { width: 60px; color: var(--text-muted); }
+.market-row span:last-child { width: 35px; text-align: right; font-weight: 600; }
+.highlight-row { font-weight: 600; color: var(--text); }
+.mini-bar-bg { flex: 1; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; }
+.mini-bar { height: 100%; background: var(--accent); border-radius: 3px; }
+
+.btts-display { display: flex; gap: 0.75rem; justify-content: center; }
+.btts-option { padding: 0.5rem 1rem; background: rgba(255,255,255,0.03); border-radius: 8px; text-align: center; min-width: 80px; }
+.btts-yes-active { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); }
+.btts-no-active { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); }
+.btts-label { display: block; font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+.btts-value { display: block; font-size: 1.1rem; font-weight: 700; }
+.btts-historical { font-size: 0.7rem; color: var(--text-muted); text-align: center; margin-top: 0.5rem; }
+
+.scorelines { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.score-badge {
+  padding: 0.3rem 0.6rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.score-badge small { color: var(--text-muted); font-weight: 400; }
+
+.form-display { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.85rem; }
+.form-indicator {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #000;
+  margin-left: 0.25rem;
+}
+.form-label { color: var(--text-muted); }
+
+/* Value Bets Summary */
+.value-bets-section { margin-top: 2rem; }
+.value-bet-item {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.vb-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.vb-match { font-weight: 600; font-size: 1rem; }
+.vb-confidence { padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; color: #000; }
+.vb-outcome { font-size: 0.9rem; margin-bottom: 0.5rem; }
+.vb-stats { display: flex; flex-wrap: wrap; gap: 1rem; }
+.vb-stat { }
+.vb-stat-label { display: block; font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; }
+.vb-stat-value { font-size: 1rem; font-weight: 700; }
+
+.no-value { color: var(--text-muted); font-style: italic; padding: 1rem 0; }
+
+.footer {
+  text-align: center;
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--card-border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>⚽ Relatório de Previsões</h1>
+      <div class="subtitle">19/04/2026, 14:58 UTC &middot; 3 jogos analisados</div>
+    </div>
+
+    <div class="section-title">Resumo</div>
+    <div class="summary-box">Foram analisados <strong>3 jogos</strong> nesta sessão, tendo sido identificadas <strong>4 apostas de valor</strong> (1 de confiança alta). A melhor oportunidade é em <strong>Everton vs Liverpool</strong> — vitória fora com um edge de +13% sobre as casas de apostas. Jogos com mais golos esperados: Bayern Munich vs Stuttgart, Everton vs Liverpool. <em>Nota: Este relatório é gerado por um modelo de Machine Learning. Resultados passados não garantem resultados futuros. Aposte com responsabilidade.</em></div>
+
+    <div class="section-title">Análise por Jogo</div>
+    <div class="matches-grid">
+      
+    <div class="match-card has-value">
+      <div class="match-header">
+        <div class="match-meta">
+          <span class="match-league">Bundesliga</span>
+          <span class="match-time">16:30</span>
+        </div>
+        <div class="match-teams">
+          <span class="team home-team">Bayern Munich</span>
+          <span class="vs">vs</span>
+          <span class="team away-team">Stuttgart</span>
+        </div>
+        <div class="vb-badges"><span class="vb-badge" style="border-color:#ef4444">VALOR: Empate (+6%)</span><span class="vb-badge" style="border-color:#ef4444">VALOR: Vitória Fora (+5%)</span></div>
+      </div>
+
+      <div class="match-body">
+        <div class="prediction-section">
+          <h4>Previsão</h4>
+          
+    <div class="prob-row">
+      <span class="prob-label">Casa</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:57%;background:#3b82f6"></div>
+      </div>
+      <span class="prob-value">57%</span>
+    </div>
+          
+    <div class="prob-row">
+      <span class="prob-label">Empate</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:23%;background:#94a3b8"></div>
+      </div>
+      <span class="prob-value">23%</span>
+    </div>
+          
+    <div class="prob-row">
+      <span class="prob-label">Fora</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:20%;background:#ef4444"></div>
+      </div>
+      <span class="prob-value">20%</span>
+    </div>
+
+          <div class="prediction-verdict">
+            <span class="verdict-label">Previsão:</span>
+            <span class="verdict-value">Vitória da Casa</span>
+            <span class="verdict-conf">(57%)</span>
+          </div>
+
+          <div class="odds-section">
+            <h4>Odds (B365)</h4>
+            <div class="odds-row">
+              <span class="odds-chip">1 1.40</span>
+              <span class="odds-chip">X 5.50</span>
+              <span class="odds-chip">2 6.50</span>
+            </div>
+          </div>
+
+          <div class="look-for-section">
+            <h4>Procure odds &ge;</h4>
+            <div class="odds-row">
+              <span class="odds-chip target">1 1.75</span>
+              <span class="odds-chip target">X 4.31</span>
+              <span class="odds-chip target">2 5.12</span>
+            </div>
+          </div>
+        </div>
+
+        
+        <div class="stats-grid">
+          <div class="stat-section">
+            <h4>Golos Esperados</h4>
+            <div class="xg-display">
+              <span class="xg-home">2.6</span>
+              <span class="xg-label">xG</span>
+              <span class="xg-away">1.4</span>
+            </div>
+            <div class="xg-total">xG Total: 3.9</div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Mercado de Golos</h4>
+            <div class="market-rows">
+              <div class="market-row">
+                <span>Over 1.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:90%"></div></div>
+                <span>90%</span>
+              </div>
+              <div class="market-row highlight-row">
+                <span>Over 2.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:75%"></div></div>
+                <span>75%</span>
+              </div>
+              <div class="market-row">
+                <span>Over 3.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:56%"></div></div>
+                <span>56%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Ambas Marcam</h4>
+            <div class="btts-display">
+              <div class="btts-option btts-yes-active">
+                <span class="btts-label">Sim</span>
+                <span class="btts-value">70%</span>
+              </div>
+              <div class="btts-option ">
+                <span class="btts-label">Não</span>
+                <span class="btts-value">30%</span>
+              </div>
+            </div>
+            <div class="btts-historical">
+              Histórico: Bayern Munich 60% | Stuttgart 50%
+            </div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Resultados Mais Prováveis</h4>
+            <div class="scorelines"><span class="score-badge">2-1 <small>9%</small></span><span class="score-badge">3-1 <small>8%</small></span><span class="score-badge">1-1 <small>7%</small></span><span class="score-badge">2-0 <small>6%</small></span><span class="score-badge">2-2 <small>6%</small></span></div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Forma Recente</h4>
+            <div class="form-display">
+              <div>Bayern Munich: <span class="form-indicator" style="background:#22c55e">2.1 ppj</span> <small class="form-label">Boa</small></div>
+              <div>Stuttgart: <span class="form-indicator" style="background:#ef4444">1.4 ppj</span> <small class="form-label">Fraca</small></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="match-narrative">
+        <h4>📝 Análise</h4>
+        <p>O modelo prevê com boa confiança (57%) uma <strong>Vitória da Casa</strong> neste jogo entre Bayern Munich e Stuttgart. A maior divergência com as casas de apostas está na casa — o modelo atribui 57% contra 68% das odds, ficando 11 pontos percentuais abaixo. Espera-se um jogo com golos (xG total: 3.9). A probabilidade de Over 2.5 é de 75%, sugerindo que apostar em mais de 2.5 golos pode ter interesse. Ambas as equipas deverão marcar — probabilidade de 70%. Historicamente, jogos de Bayern Munich têm BTTS em 60% dos casos e Stuttgart em 50%. O resultado mais provável é <strong>2-1</strong> (9%). Em termos de forma recente, Bayern Munich chega em melhor momento. Bayern Munich com forma boa (2.1 ppj) e Stuttgart com forma fraca (1.4 ppj). <strong>💡 Aposta de valor detetada:</strong> empate com edge de +6% (confiança baixa). Procure odds mínimas de 5.50. Kelly sugere 6% da banca. Outras oportunidades: vitória fora (+5%).</p>
+      </div>
+    </div>
+    <div class="match-card has-value">
+      <div class="match-header">
+        <div class="match-meta">
+          <span class="match-league">Premier League</span>
+          <span class="match-time">14:00</span>
+        </div>
+        <div class="match-teams">
+          <span class="team home-team">Everton</span>
+          <span class="vs">vs</span>
+          <span class="team away-team">Liverpool</span>
+        </div>
+        <div class="vb-badges"><span class="vb-badge" style="border-color:#22c55e">VALOR: Vitória Fora (+13%)</span></div>
+      </div>
+
+      <div class="match-body">
+        <div class="prediction-section">
+          <h4>Previsão</h4>
+          
+    <div class="prob-row">
+      <span class="prob-label">Casa</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:26%;background:#3b82f6"></div>
+      </div>
+      <span class="prob-value">26%</span>
+    </div>
+          
+    <div class="prob-row">
+      <span class="prob-label">Empate</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:20%;background:#94a3b8"></div>
+      </div>
+      <span class="prob-value">20%</span>
+    </div>
+          
+    <div class="prob-row">
+      <span class="prob-label">Fora</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:54%;background:#ef4444"></div>
+      </div>
+      <span class="prob-value">54%</span>
+    </div>
+
+          <div class="prediction-verdict">
+            <span class="verdict-label">Previsão:</span>
+            <span class="verdict-value">Vitória Fora</span>
+            <span class="verdict-conf">(54%)</span>
+          </div>
+
+          <div class="odds-section">
+            <h4>Odds (B365)</h4>
+            <div class="odds-row">
+              <span class="odds-chip">1 3.10</span>
+              <span class="odds-chip">X 3.40</span>
+              <span class="odds-chip">2 2.30</span>
+            </div>
+          </div>
+
+          <div class="look-for-section">
+            <h4>Procure odds &ge;</h4>
+            <div class="odds-row">
+              <span class="odds-chip target">1 3.88</span>
+              <span class="odds-chip target">X 4.99</span>
+              <span class="odds-chip target">2 1.85</span>
+            </div>
+          </div>
+        </div>
+
+        
+        <div class="stats-grid">
+          <div class="stat-section">
+            <h4>Golos Esperados</h4>
+            <div class="xg-display">
+              <span class="xg-home">1.6</span>
+              <span class="xg-label">xG</span>
+              <span class="xg-away">1.5</span>
+            </div>
+            <div class="xg-total">xG Total: 3.1</div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Mercado de Golos</h4>
+            <div class="market-rows">
+              <div class="market-row">
+                <span>Over 1.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:82%"></div></div>
+                <span>82%</span>
+              </div>
+              <div class="market-row highlight-row">
+                <span>Over 2.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:61%"></div></div>
+                <span>61%</span>
+              </div>
+              <div class="market-row">
+                <span>Over 3.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:39%"></div></div>
+                <span>39%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Ambas Marcam</h4>
+            <div class="btts-display">
+              <div class="btts-option btts-yes-active">
+                <span class="btts-label">Sim</span>
+                <span class="btts-value">63%</span>
+              </div>
+              <div class="btts-option ">
+                <span class="btts-label">Não</span>
+                <span class="btts-value">37%</span>
+              </div>
+            </div>
+            <div class="btts-historical">
+              Histórico: Everton 40% | Liverpool 80%
+            </div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Resultados Mais Prováveis</h4>
+            <div class="scorelines"><span class="score-badge">1-1 <small>11%</small></span><span class="score-badge">2-1 <small>9%</small></span><span class="score-badge">1-2 <small>8%</small></span><span class="score-badge">1-0 <small>7%</small></span><span class="score-badge">2-2 <small>7%</small></span></div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Forma Recente</h4>
+            <div class="form-display">
+              <div>Everton: <span class="form-indicator" style="background:#eab308">1.5 ppj</span> <small class="form-label">Média</small></div>
+              <div>Liverpool: <span class="form-indicator" style="background:#eab308">1.7 ppj</span> <small class="form-label">Média</small></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="match-narrative">
+        <h4>📝 Análise</h4>
+        <p>O modelo prevê com boa confiança (54%) uma <strong>Vitória Fora</strong> neste jogo entre Everton e Liverpool. A maior divergência com as casas de apostas está na fora — o modelo atribui 54% contra 41% das odds, ficando 13 pontos percentuais acima. Espera-se um jogo com golos (xG total: 3.1). A probabilidade de Over 2.5 é de 61%, sugerindo que apostar em mais de 2.5 golos pode ter interesse. Ambas as equipas deverão marcar — probabilidade de 63%. Historicamente, jogos de Everton têm BTTS em 40% dos casos e Liverpool em 80%. O resultado mais provável é <strong>1-1</strong> (11%). Ambas as equipas apresentam forma semelhante: Everton (1.5 ppj) e Liverpool (1.7 ppj). <strong>💡 Aposta de valor detetada:</strong> vitória fora com edge de +13% (confiança alta). Procure odds mínimas de 2.30. Kelly sugere 19% da banca.</p>
+      </div>
+    </div>
+    <div class="match-card has-value">
+      <div class="match-header">
+        <div class="match-meta">
+          <span class="match-league">Premier League</span>
+          <span class="match-time">16:30</span>
+        </div>
+        <div class="match-teams">
+          <span class="team home-team">Man City</span>
+          <span class="vs">vs</span>
+          <span class="team away-team">Arsenal</span>
+        </div>
+        <div class="vb-badges"><span class="vb-badge" style="border-color:#ef4444">VALOR: Vitória Fora (+10%)</span></div>
+      </div>
+
+      <div class="match-body">
+        <div class="prediction-section">
+          <h4>Previsão</h4>
+          
+    <div class="prob-row">
+      <span class="prob-label">Casa</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:44%;background:#3b82f6"></div>
+      </div>
+      <span class="prob-value">44%</span>
+    </div>
+          
+    <div class="prob-row">
+      <span class="prob-label">Empate</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:23%;background:#94a3b8"></div>
+      </div>
+      <span class="prob-value">23%</span>
+    </div>
+          
+    <div class="prob-row">
+      <span class="prob-label">Fora</span>
+      <div class="prob-bar-bg">
+        <div class="prob-bar-fill" style="width:33%;background:#ef4444"></div>
+      </div>
+      <span class="prob-value">33%</span>
+    </div>
+
+          <div class="prediction-verdict">
+            <span class="verdict-label">Previsão:</span>
+            <span class="verdict-value">Vitória da Casa</span>
+            <span class="verdict-conf">(44%)</span>
+          </div>
+
+          <div class="odds-section">
+            <h4>Odds (B365)</h4>
+            <div class="odds-row">
+              <span class="odds-chip">1 1.83</span>
+              <span class="odds-chip">X 3.70</span>
+              <span class="odds-chip">2 4.20</span>
+            </div>
+          </div>
+
+          <div class="look-for-section">
+            <h4>Procure odds &ge;</h4>
+            <div class="odds-row">
+              <span class="odds-chip target">1 2.30</span>
+              <span class="odds-chip target">X 4.28</span>
+              <span class="odds-chip target">2 3.03</span>
+            </div>
+          </div>
+        </div>
+
+        
+        <div class="stats-grid">
+          <div class="stat-section">
+            <h4>Golos Esperados</h4>
+            <div class="xg-display">
+              <span class="xg-home">1.2</span>
+              <span class="xg-label">xG</span>
+              <span class="xg-away">1.2</span>
+            </div>
+            <div class="xg-total">xG Total: 2.4</div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Mercado de Golos</h4>
+            <div class="market-rows">
+              <div class="market-row">
+                <span>Over 1.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:69%"></div></div>
+                <span>69%</span>
+              </div>
+              <div class="market-row highlight-row">
+                <span>Over 2.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:43%"></div></div>
+                <span>43%</span>
+              </div>
+              <div class="market-row">
+                <span>Over 3.5</span>
+                <div class="mini-bar-bg"><div class="mini-bar" style="width:22%"></div></div>
+                <span>22%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Ambas Marcam</h4>
+            <div class="btts-display">
+              <div class="btts-option ">
+                <span class="btts-label">Sim</span>
+                <span class="btts-value">49%</span>
+              </div>
+              <div class="btts-option btts-no-active">
+                <span class="btts-label">Não</span>
+                <span class="btts-value">51%</span>
+              </div>
+            </div>
+            <div class="btts-historical">
+              Histórico: Man City 40% | Arsenal 70%
+            </div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Resultados Mais Prováveis</h4>
+            <div class="scorelines"><span class="score-badge">1-1 <small>13%</small></span><span class="score-badge">1-0 <small>11%</small></span><span class="score-badge">0-1 <small>10%</small></span><span class="score-badge">0-0 <small>9%</small></span><span class="score-badge">2-1 <small>8%</small></span></div>
+          </div>
+
+          <div class="stat-section">
+            <h4>Forma Recente</h4>
+            <div class="form-display">
+              <div>Man City: <span class="form-indicator" style="background:#22c55e">2.4 ppj</span> <small class="form-label">Boa</small></div>
+              <div>Arsenal: <span class="form-indicator" style="background:#eab308">1.9 ppj</span> <small class="form-label">Média</small></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="match-narrative">
+        <h4>📝 Análise</h4>
+        <p>A previsão para Man City vs Arsenal aponta para <strong>Vitória da Casa</strong> (44%), embora com alguma incerteza. A maior divergência com as casas de apostas está na fora — o modelo atribui 33% contra 23% das odds, ficando 10 pontos percentuais acima. O jogo deverá ter um número moderado de golos (xG total: 2.4). Over 2.5 está a 43%. O resultado mais provável é <strong>1-1</strong> (13%). Ambas as equipas apresentam forma semelhante: Man City (2.4 ppj) e Arsenal (1.9 ppj). <strong>💡 Aposta de valor detetada:</strong> vitória fora com edge de +10% (confiança baixa). Procure odds mínimas de 4.20. Kelly sugere 12% da banca.</p>
+      </div>
+    </div>
+    </div>
+
+    <div class="value-bets-section">
+      <div class="section-title">Apostas de Valor</div>
+      
+    <div class="value-bet-item">
+      <div class="vb-header">
+        <span class="vb-match">Everton vs Liverpool</span>
+        <span class="vb-confidence" style="background:#22c55e">ALTA</span>
+      </div>
+      <div class="vb-details">
+        <div class="vb-outcome">Aposta: <strong>Vitória Fora</strong></div>
+        <div class="vb-stats">
+          <div class="vb-stat">
+            <span class="vb-stat-label">Prob. ML</span>
+            <span class="vb-stat-value">54%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Bookmaker</span>
+            <span class="vb-stat-value">41%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Edge</span>
+            <span class="vb-stat-value" style="color:#22c55e">+13%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Odds Mín.</span>
+            <span class="vb-stat-value">2.30</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Kelly</span>
+            <span class="vb-stat-value">19%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="value-bet-item">
+      <div class="vb-header">
+        <span class="vb-match">Man City vs Arsenal</span>
+        <span class="vb-confidence" style="background:#ef4444">BAIXA</span>
+      </div>
+      <div class="vb-details">
+        <div class="vb-outcome">Aposta: <strong>Vitória Fora</strong></div>
+        <div class="vb-stats">
+          <div class="vb-stat">
+            <span class="vb-stat-label">Prob. ML</span>
+            <span class="vb-stat-value">33%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Bookmaker</span>
+            <span class="vb-stat-value">23%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Edge</span>
+            <span class="vb-stat-value" style="color:#22c55e">+10%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Odds Mín.</span>
+            <span class="vb-stat-value">4.20</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Kelly</span>
+            <span class="vb-stat-value">12%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="value-bet-item">
+      <div class="vb-header">
+        <span class="vb-match">Bayern Munich vs Stuttgart</span>
+        <span class="vb-confidence" style="background:#ef4444">BAIXA</span>
+      </div>
+      <div class="vb-details">
+        <div class="vb-outcome">Aposta: <strong>Empate</strong></div>
+        <div class="vb-stats">
+          <div class="vb-stat">
+            <span class="vb-stat-label">Prob. ML</span>
+            <span class="vb-stat-value">23%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Bookmaker</span>
+            <span class="vb-stat-value">17%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Edge</span>
+            <span class="vb-stat-value" style="color:#22c55e">+6%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Odds Mín.</span>
+            <span class="vb-stat-value">5.50</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Kelly</span>
+            <span class="vb-stat-value">6%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="value-bet-item">
+      <div class="vb-header">
+        <span class="vb-match">Bayern Munich vs Stuttgart</span>
+        <span class="vb-confidence" style="background:#ef4444">BAIXA</span>
+      </div>
+      <div class="vb-details">
+        <div class="vb-outcome">Aposta: <strong>Vitória Fora</strong></div>
+        <div class="vb-stats">
+          <div class="vb-stat">
+            <span class="vb-stat-label">Prob. ML</span>
+            <span class="vb-stat-value">20%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Bookmaker</span>
+            <span class="vb-stat-value">15%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Edge</span>
+            <span class="vb-stat-value" style="color:#22c55e">+5%</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Odds Mín.</span>
+            <span class="vb-stat-value">6.50</span>
+          </div>
+          <div class="vb-stat">
+            <span class="vb-stat-label">Kelly</span>
+            <span class="vb-stat-value">5%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <div class="footer">
+      Gerado pelo Football Prediction Agent &middot; Ensemble ML + Modelo Poisson &middot; Resultados passados não garantem resultados futuros &middot; Aposte com responsabilidade
+    </div>
+  </div>
+</body>
+</html>

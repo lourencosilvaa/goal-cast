@@ -1,0 +1,362 @@
+[
+  {
+    "division": "D1",
+    "league": "Bundesliga",
+    "date": "19/04/2026",
+    "time": "14:30",
+    "home_team": "Freiburg",
+    "away_team": "Heidenheim",
+    "b365_odds": {
+      "home": 1.67,
+      "draw": 4.1,
+      "away": 4.75
+    },
+    "implied_probabilities": {
+      "home": 0.5685384402049366,
+      "draw": 0.23157541344932783,
+      "away": 0.19988614634573557
+    }
+  },
+  {
+    "division": "D1",
+    "league": "Bundesliga",
+    "date": "19/04/2026",
+    "time": "16:30",
+    "home_team": "Bayern Munich",
+    "away_team": "Stuttgart",
+    "b365_odds": {
+      "home": 1.4,
+      "draw": 5.5,
+      "away": 6.5
+    },
+    "implied_probabilities": {
+      "home": 0.6803044719314939,
+      "draw": 0.17316841103710753,
+      "away": 0.1465271170313987
+    }
+  },
+  {
+    "division": "D1",
+    "league": "Bundesliga",
+    "date": "19/04/2026",
+    "time": "18:30",
+    "home_team": "M'gladbach",
+    "away_team": "Mainz",
+    "b365_odds": {
+      "home": 2.35,
+      "draw": 3.5,
+      "away": 2.9
+    },
+    "implied_probabilities": {
+      "home": 0.40293767368003175,
+      "draw": 0.2705438666137356,
+      "away": 0.3265184597062326
+    }
+  },
+  {
+    "division": "E0",
+    "league": "Premier League",
+    "date": "19/04/2026",
+    "time": "14:00",
+    "home_team": "Aston Villa",
+    "away_team": "Sunderland",
+    "b365_odds": {
+      "home": 1.67,
+      "draw": 3.75,
+      "away": 5.5
+    },
+    "implied_probabilities": {
+      "home": 0.5717651950932151,
+      "draw": 0.2546261002148451,
+      "away": 0.17360870469193984
+    }
+  },
+  {
+    "division": "E0",
+    "league": "Premier League",
+    "date": "19/04/2026",
+    "time": "14:00",
+    "home_team": "Everton",
+    "away_team": "Liverpool",
+    "b365_odds": {
+      "home": 3.1,
+      "draw": 3.4,
+      "away": 2.3
+    },
+    "implied_probabilities": {
+      "home": 0.3067869752844252,
+      "draw": 0.27971753628874063,
+      "away": 0.41349548842683403
+    }
+  },
+  {
+    "division": "E0",
+    "league": "Premier League",
+    "date": "19/04/2026",
+    "time": "14:00",
+    "home_team": "Nott'm Forest",
+    "away_team": "Burnley",
+    "b365_odds": {
+      "home": 1.5,
+      "draw": 4.2,
+      "away": 7.0
+    },
+    "implied_probabilities": {
+      "home": 0.6363636363636365,
+      "draw": 0.2272727272727273,
+      "away": 0.13636363636363638
+    }
+  },
+  {
+    "division": "E0",
+    "league": "Premier League",
+    "date": "19/04/2026",
+    "time": "16:30",
+    "home_team": "Man City",
+    "away_team": "Arsenal",
+    "b365_odds": {
+      "home": 1.83,
+      "draw": 3.7,
+      "away": 4.2
+    },
+    "implied_probabilities": {
+      "home": 0.5180518051805181,
+      "draw": 0.25622562256225623,
+      "away": 0.22572257225722572
+    }
+  },
+  {
+    "division": "F1",
+    "league": "Ligue 1",
+    "date": "19/04/2026",
+    "time": "14:00",
+    "home_team": "Monaco",
+    "away_team": "Auxerre",
+    "b365_odds": {
+      "home": 1.53,
+      "draw": 4.33,
+      "away": 6.0
+    },
+    "implied_probabilities": {
+      "home": 0.6217557060086298,
+      "draw": 0.21969658895916944,
+      "away": 0.15854770503220061
+    }
+  },
+  {
+    "division": "F1",
+    "league": "Ligue 1",
+    "date": "19/04/2026",
+    "time": "16:15",
+    "home_team": "Metz",
+    "away_team": "Paris FC",
+    "b365_odds": {
+      "home": 3.5,
+      "draw": 3.5,
+      "away": 2.05
+    },
+    "implied_probabilities": {
+      "home": 0.26973684210526316,
+      "draw": 0.26973684210526316,
+      "away": 0.46052631578947373
+    }
+  },
+  {
+    "division": "F1",
+    "league": "Ligue 1",
+    "date": "19/04/2026",
+    "time": "16:15",
+    "home_team": "Nantes",
+    "away_team": "Brest",
+    "b365_odds": {
+      "home": 2.35,
+      "draw": 3.3,
+      "away": 3.1
+    },
+    "implied_probabilities": {
+      "home": 0.4048278591214879,
+      "draw": 0.2882865057380293,
+      "away": 0.3068856351404828
+    }
+  },
+  {
+    "division": "F1",
+    "league": "Ligue 1",
+    "date": "19/04/2026",
+    "time": "16:15",
+    "home_team": "Strasbourg",
+    "away_team": "Rennes",
+    "b365_odds": {
+      "home": 2.63,
+      "draw": 3.75,
+      "away": 2.5
+    },
+    "implied_probabilities": {
+      "home": 0.36319612590799033,
+      "draw": 0.2547215496368039,
+      "away": 0.38208232445520585
+    }
+  },
+  {
+    "division": "F1",
+    "league": "Ligue 1",
+    "date": "19/04/2026",
+    "time": "19:45",
+    "home_team": "Paris SG",
+    "away_team": "Lyon",
+    "b365_odds": {
+      "home": 1.3,
+      "draw": 6.0,
+      "away": 8.5
+    },
+    "implied_probabilities": {
+      "home": 0.730136005726557,
+      "draw": 0.15819613457408735,
+      "away": 0.11166785969935578
+    }
+  },
+  {
+    "division": "I1",
+    "league": "Serie A",
+    "date": "19/04/2026",
+    "time": "11:30",
+    "home_team": "Cremonese",
+    "away_team": "Torino",
+    "b365_odds": {
+      "home": 2.88,
+      "draw": 3.1,
+      "away": 2.6
+    },
+    "implied_probabilities": {
+      "home": 0.32930217355777086,
+      "draw": 0.30593234188592905,
+      "away": 0.36476548455630003
+    }
+  },
+  {
+    "division": "I1",
+    "league": "Serie A",
+    "date": "19/04/2026",
+    "time": "14:00",
+    "home_team": "Verona",
+    "away_team": "Milan",
+    "b365_odds": {
+      "home": 6.25,
+      "draw": 3.9,
+      "away": 1.57
+    },
+    "implied_probabilities": {
+      "home": 0.15189590801404101,
+      "draw": 0.24342292950968114,
+      "away": 0.6046811624762779
+    }
+  },
+  {
+    "division": "I1",
+    "league": "Serie A",
+    "date": "19/04/2026",
+    "time": "17:00",
+    "home_team": "Pisa",
+    "away_team": "Genoa",
+    "b365_odds": {
+      "home": 3.25,
+      "draw": 3.1,
+      "away": 2.35
+    },
+    "implied_probabilities": {
+      "home": 0.29142914291429145,
+      "draw": 0.3055305530553056,
+      "away": 0.4030403040304031
+    }
+  },
+  {
+    "division": "I1",
+    "league": "Serie A",
+    "date": "19/04/2026",
+    "time": "19:45",
+    "home_team": "Juventus",
+    "away_team": "Bologna",
+    "b365_odds": {
+      "home": 1.5,
+      "draw": 4.5,
+      "away": 6.5
+    },
+    "implied_probabilities": {
+      "home": 0.639344262295082,
+      "draw": 0.21311475409836067,
+      "away": 0.1475409836065574
+    }
+  },
+  {
+    "division": "P1",
+    "league": "Liga Portugal",
+    "date": "19/04/2026",
+    "time": "15:30",
+    "home_team": "Arouca",
+    "away_team": "Estrela",
+    "b365_odds": {
+      "home": 2.01,
+      "draw": 3.4,
+      "away": 3.5
+    },
+    "implied_probabilities": {
+      "home": 0.4617951802553456,
+      "draw": 0.2730024447980131,
+      "away": 0.2652023749466413
+    }
+  },
+  {
+    "division": "P1",
+    "league": "Liga Portugal",
+    "date": "19/04/2026",
+    "time": "18:00",
+    "home_team": "Sp Lisbon",
+    "away_team": "Benfica",
+    "b365_odds": {
+      "home": 2.1,
+      "draw": 3.5,
+      "away": 3.2
+    },
+    "implied_probabilities": {
+      "home": 0.44321329639889195,
+      "draw": 0.2659279778393352,
+      "away": 0.29085872576177285
+    }
+  },
+  {
+    "division": "P1",
+    "league": "Liga Portugal",
+    "date": "19/04/2026",
+    "time": "20:30",
+    "home_team": "Porto",
+    "away_team": "Tondela",
+    "b365_odds": {
+      "home": 1.15,
+      "draw": 6.25,
+      "away": 17.0
+    },
+    "implied_probabilities": {
+      "home": 0.7989472694802143,
+      "draw": 0.14700629758435943,
+      "away": 0.05404643293542626
+    }
+  },
+  {
+    "division": "P1",
+    "league": "Liga Portugal",
+    "date": "19/04/2026",
+    "time": "20:30",
+    "home_team": "Sp Braga",
+    "away_team": "Famalicao",
+    "b365_odds": {
+      "home": 1.79,
+      "draw": 3.6,
+      "away": 4.2
+    },
+    "implied_probabilities": {
+      "home": 0.5199092221992985,
+      "draw": 0.2585104188157623,
+      "away": 0.2215803589849391
+    }
+  }
+]

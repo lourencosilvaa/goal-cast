@@ -1,0 +1,133 @@
+# Football Prediction Agent Configuration
+
+app:
+  name: football-prediction-agent
+  version: 0.1.0
+
+data:
+  base_url: "https://www.football-data.co.uk/mmz4281"
+  seasons:
+    - "2425"
+    - "2324"
+    - "2223"
+    - "2122"
+    - "2021"
+  leagues:
+    E0: "Premier League"
+    SP1: "La Liga"
+    D1: "Bundesliga"
+    I1: "Serie A"
+    F1: "Ligue 1"
+    P1: "Liga Portugal"
+  columns_to_keep:
+    - "Date"
+    - "HomeTeam"
+    - "AwayTeam"
+    - "FTHG"
+    - "FTAG"
+    - "FTR"
+    - "HTHG"
+    - "HTAG"
+    - "HTR"
+    - "HS"
+    - "AS"
+    - "HST"
+    - "AST"
+    - "HF"
+    - "AF"
+    - "HC"
+    - "AC"
+    - "HY"
+    - "AY"
+    - "HR"
+    - "AR"
+    - "B365H"
+    - "B365D"
+    - "B365A"
+
+features:
+  rolling_window: 5
+  elo:
+    k_factor: 32
+    home_advantage: 65
+    initial_rating: 1500.0
+  xg_proxy:
+    sot_conversion: 0.30
+    shot_conversion: 0.03
+  fatigue:
+    max_rest_days: 30
+    default_rest_days: 14
+    fatigue_threshold: 3
+
+model:
+  test_size: 0.2
+  random_state: 42
+  logistic_regression:
+    max_iter: 1000
+    C: 0.5
+  random_forest:
+    n_estimators: 200
+    max_depth: 8
+    min_samples_leaf: 10
+  xgboost:
+    n_estimators: 200
+    max_depth: 5
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+  ensemble:
+    voting: "soft"
+    weights:
+      - 1
+      - 1
+      - 2
+
+scrapers:
+  request_timeout: 15
+  rate_limit_seconds: 1.0
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  betclic:
+    base_url: "https://www.betclic.pt/futebol-s1"
+    enabled: true
+  betano:
+    base_url: "https://www.betano.pt/sport/futebol/jogos-de-hoje/"
+    enabled: true
+  solverde:
+    base_url: "https://www.solverde.pt/apostas/futebol"
+    enabled: true
+
+analysis:
+  value_threshold: 0.05
+  min_edge: 0.03
+  blend_weights:
+    ml_model: 0.50
+    bookmaker_avg: 0.30
+    best_odds: 0.20
+
+football_data_org:
+  base_url: "https://api.football-data.org/v4"
+  api_key: ""
+  request_timeout: 10
+
+odds_api:
+  api_key: ""  # Set via THE_ODDS_API_KEY env var. Free tier: 500 req/month
+  regions: "eu"
+  markets: "h2h"
+  competitions:
+    CL: "UEFA Champions League"
+    EL: "UEFA Europa League"
+    ECL: "UEFA Conference League"
+    FA: "FA Cup"
+    CDR: "Copa del Rey"
+
+retrain_check:
+  enabled: true
+
+evaluation:
+  storage_dir: "output/evaluation"
+
+output:
+  reports_dir: "output/reports"
+  models_dir: "output/models"
+  plots_dir: "output/plots"
+  exports_dir: "output/exports"

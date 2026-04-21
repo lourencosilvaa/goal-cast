@@ -1,0 +1,283 @@
+{
+  "predictions": [
+    {
+      "home_team": "Bayern Munich",
+      "away_team": "Stuttgart",
+      "probabilities": {
+        "home_win": 0.5729,
+        "draw": 0.2319,
+        "away_win": 0.1952
+      },
+      "predicted_outcome": "Home Win",
+      "confidence": 0.5729
+    },
+    {
+      "home_team": "Everton",
+      "away_team": "Liverpool",
+      "probabilities": {
+        "home_win": 0.2578,
+        "draw": 0.2003,
+        "away_win": 0.5419
+      },
+      "predicted_outcome": "Away Win",
+      "confidence": 0.5419
+    },
+    {
+      "home_team": "Man City",
+      "away_team": "Arsenal",
+      "probabilities": {
+        "home_win": 0.4357,
+        "draw": 0.2338,
+        "away_win": 0.3304
+      },
+      "predicted_outcome": "Home Win",
+      "confidence": 0.4357
+    }
+  ],
+  "fixtures": [
+    {
+      "division": "D1",
+      "league": "Bundesliga",
+      "date": "19/04/2026",
+      "time": "16:30",
+      "home_team": "Bayern Munich",
+      "away_team": "Stuttgart",
+      "b365_odds": {
+        "home": 1.4,
+        "draw": 5.5,
+        "away": 6.5
+      },
+      "implied_probabilities": {
+        "home": 0.6803044719314939,
+        "draw": 0.17316841103710753,
+        "away": 0.1465271170313987
+      }
+    },
+    {
+      "division": "E0",
+      "league": "Premier League",
+      "date": "19/04/2026",
+      "time": "14:00",
+      "home_team": "Everton",
+      "away_team": "Liverpool",
+      "b365_odds": {
+        "home": 3.1,
+        "draw": 3.4,
+        "away": 2.3
+      },
+      "implied_probabilities": {
+        "home": 0.3067869752844252,
+        "draw": 0.27971753628874063,
+        "away": 0.41349548842683403
+      }
+    },
+    {
+      "division": "E0",
+      "league": "Premier League",
+      "date": "19/04/2026",
+      "time": "16:30",
+      "home_team": "Man City",
+      "away_team": "Arsenal",
+      "b365_odds": {
+        "home": 1.83,
+        "draw": 3.7,
+        "away": 4.2
+      },
+      "implied_probabilities": {
+        "home": 0.5180518051805181,
+        "draw": 0.25622562256225623,
+        "away": 0.22572257225722572
+      }
+    }
+  ],
+  "match_stats": [
+    {
+      "home_team": "Bayern Munich",
+      "away_team": "Stuttgart",
+      "league": "Bundesliga",
+      "expected_goals": {
+        "home": 2.57,
+        "away": 1.38,
+        "total": 3.95
+      },
+      "over_under": {
+        "over_1.5": 0.905,
+        "over_2.5": 0.754,
+        "over_3.5": 0.556,
+        "under_2.5": 0.246
+      },
+      "btts": {
+        "yes": 0.703,
+        "no": 0.297
+      },
+      "top_scorelines": [
+        {
+          "score": "2-1",
+          "prob": 0.088
+        },
+        {
+          "score": "3-1",
+          "prob": 0.075
+        },
+        {
+          "score": "1-1",
+          "prob": 0.068
+        },
+        {
+          "score": "2-0",
+          "prob": 0.064
+        },
+        {
+          "score": "2-2",
+          "prob": 0.06
+        }
+      ],
+      "form": {
+        "home": 2.1,
+        "away": 1.4
+      }
+    },
+    {
+      "home_team": "Everton",
+      "away_team": "Liverpool",
+      "league": "Premier League",
+      "expected_goals": {
+        "home": 1.63,
+        "away": 1.52,
+        "total": 3.15
+      },
+      "over_under": {
+        "over_1.5": 0.822,
+        "over_2.5": 0.609,
+        "over_3.5": 0.386,
+        "under_2.5": 0.391
+      },
+      "btts": {
+        "yes": 0.63,
+        "no": 0.37
+      },
+      "top_scorelines": [
+        {
+          "score": "1-1",
+          "prob": 0.106
+        },
+        {
+          "score": "2-1",
+          "prob": 0.087
+        },
+        {
+          "score": "1-2",
+          "prob": 0.081
+        },
+        {
+          "score": "1-0",
+          "prob": 0.07
+        },
+        {
+          "score": "2-2",
+          "prob": 0.066
+        }
+      ],
+      "form": {
+        "home": 1.5,
+        "away": 1.7
+      }
+    },
+    {
+      "home_team": "Man City",
+      "away_team": "Arsenal",
+      "league": "Premier League",
+      "expected_goals": {
+        "home": 1.25,
+        "away": 1.17,
+        "total": 2.41
+      },
+      "over_under": {
+        "over_1.5": 0.695,
+        "over_2.5": 0.434,
+        "over_3.5": 0.224,
+        "under_2.5": 0.566
+      },
+      "btts": {
+        "yes": 0.492,
+        "no": 0.508
+      },
+      "top_scorelines": [
+        {
+          "score": "1-1",
+          "prob": 0.13
+        },
+        {
+          "score": "1-0",
+          "prob": 0.112
+        },
+        {
+          "score": "0-1",
+          "prob": 0.104
+        },
+        {
+          "score": "0-0",
+          "prob": 0.089
+        },
+        {
+          "score": "2-1",
+          "prob": 0.081
+        }
+      ],
+      "form": {
+        "home": 2.4,
+        "away": 1.9
+      }
+    }
+  ],
+  "value_bets": [
+    {
+      "match": "Everton vs Liverpool",
+      "recommended_bet": "Away Win",
+      "ml_probability": 0.5419,
+      "bookmaker_implied": 0.4135,
+      "edge": 0.1284,
+      "edge_pct": "12.8%",
+      "best_odds": 2.3,
+      "best_source": "Bet365",
+      "kelly_fraction": 0.1895,
+      "confidence": "HIGH"
+    },
+    {
+      "match": "Man City vs Arsenal",
+      "recommended_bet": "Away Win",
+      "ml_probability": 0.3304,
+      "bookmaker_implied": 0.2257,
+      "edge": 0.1047,
+      "edge_pct": "10.5%",
+      "best_odds": 4.2,
+      "best_source": "Bet365",
+      "kelly_fraction": 0.1212,
+      "confidence": "LOW"
+    },
+    {
+      "match": "Bayern Munich vs Stuttgart",
+      "recommended_bet": "Draw",
+      "ml_probability": 0.2319,
+      "bookmaker_implied": 0.1732,
+      "edge": 0.0588,
+      "edge_pct": "5.9%",
+      "best_odds": 5.5,
+      "best_source": "Bet365",
+      "kelly_fraction": 0.0613,
+      "confidence": "LOW"
+    },
+    {
+      "match": "Bayern Munich vs Stuttgart",
+      "recommended_bet": "Away Win",
+      "ml_probability": 0.1952,
+      "bookmaker_implied": 0.1465,
+      "edge": 0.0487,
+      "edge_pct": "4.9%",
+      "best_odds": 6.5,
+      "best_source": "Bet365",
+      "kelly_fraction": 0.0489,
+      "confidence": "LOW"
+    }
+  ]
+}

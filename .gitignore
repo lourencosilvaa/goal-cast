@@ -1,0 +1,37 @@
+# Build output
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Vite cache
+.vite/
+
+# Test coverage
+coverage/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor
+.DS_Store
+*.local
+
+# Claude 
+/.claude
+
+# Local storage
+*.db
+
+# pycache
+__pycache__/
+*.pyc
+
+# Coverage file
+.coverage
+
+# Github instructions
+/.github/instructions
