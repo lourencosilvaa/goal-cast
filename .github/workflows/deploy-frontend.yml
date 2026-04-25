@@ -1,0 +1,86 @@
+# Deploy frontend to Render on every push to main.
+#
+# Flow: build Docker image (nginx + static files) → push to ghcr.io → trigger Render deploy hook.
+#
+# ── One-time Render setup ──────────────────────────────────────────────────────
+# 1. Run this workflow manually first (Actions → Deploy Frontend → Run workflow)
+# 2. Create a Web Service on Render:
+#      Image URL: ghcr.io/<github-org>/football-prediction-frontend:latest
+#      Registry credentials: GitHub (same as backend)
+#      Health check path: /
+# 3. Copy the Deploy Hook URL → add as GitHub secret RENDER_FRONTEND_DEPLOY_HOOK_URL
+# ───────────────────────────────────────────────────────────────────────────────
+
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/frontend/**"
+      - "Dockerfile.frontend"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build → Push → Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set image name (lowercase)
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}-frontend" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          build-args: |
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
+            VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Trigger Render redeploy
+        if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "$RENDER_DEPLOY_HOOK_URL")
+          echo "Render deploy hook response: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
+            echo "::warning::Render deploy hook returned $HTTP_STATUS"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Frontend Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`$REGISTRY/$IMAGE_NAME:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
