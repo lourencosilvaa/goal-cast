@@ -10,6 +10,7 @@ Key optimisations over the original per-fixture approach:
     requests are instant.
 """
 
+import gc
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -37,7 +38,7 @@ from src.scrapers.odds_aggregator import AggregatedOdds
 # Cache TTL in seconds (30 minutes)
 CACHE_TTL = 30 * 60
 # Maximum number of league:date entries kept in memory
-MAX_CACHE_ENTRIES = 60
+MAX_CACHE_ENTRIES = 12
 
 
 @dataclass
@@ -64,7 +65,6 @@ class PredictionService:
         self._cache: OrderedDict[str, LeaguePredictions] = OrderedDict()
         self._model_dir = Path(config.output.models_dir)
         self._predictor: MatchPredictor | None = None
-        self._league_data_cache: dict[str, pd.DataFrame] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -117,10 +117,8 @@ class PredictionService:
             keys_to_remove = [k for k in self._cache if k.startswith(league_code)]
             for k in keys_to_remove:
                 del self._cache[k]
-            self._league_data_cache.pop(league_code, None)
         else:
             self._cache.clear()
-            self._league_data_cache.clear()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -138,11 +136,9 @@ class PredictionService:
     def _load_league_featured_data(self, league_code: str) -> pd.DataFrame:
         """
         Load historical data for a league, clean it, build features
-        and compute ELO — once.  Results are cached in memory.
+        and compute ELO.  Data is NOT cached — it is freed after
+        predictions are computed to keep memory usage low.
         """
-        if league_code in self._league_data_cache:
-            return self._league_data_cache[league_code]
-
         loader = FootballDataLoader(self.config.data, hf_config=self.config.huggingface)
         frames = []
         for season in self.config.data.seasons:
@@ -151,11 +147,10 @@ class PredictionService:
                 frames.append(df)
 
         if not frames:
-            empty = pd.DataFrame()
-            self._league_data_cache[league_code] = empty
-            return empty
+            return pd.DataFrame()
 
         data = pd.concat(frames, ignore_index=True)
+        del frames  # free intermediate memory
 
         cleaner = DataCleaner()
         data = cleaner.clean(data)
@@ -164,13 +159,11 @@ class PredictionService:
         data = engineer.build_all_features(data)
 
         if data.empty:
-            self._league_data_cache[league_code] = data
             return data
 
         elo = FootballELO(self.config.features.elo)
         data = elo.compute_elo_features(data)
 
-        self._league_data_cache[league_code] = data
         return data
 
     def _predict_fixture_from_data(
@@ -494,7 +487,11 @@ class PredictionService:
             predictions.append(pred)
             odds_list.append(self._fixture_to_odds(fixture))
 
-        # 4. Compute Poisson match stats (reuses its own internal cache)
+        # Free the large DataFrame now that predictions are done
+        del featured_data
+        gc.collect()
+
+        # 4. Compute Poisson match stats
         stats_calc = MatchStatsCalculator(self.config.data)
         match_stats: list[MatchStats | None] = []
         for fixture in fixtures:

@@ -1,8 +1,10 @@
 from datetime import date
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+
+from src.backend.core.auth import get_approved_user
 
 router = APIRouter(prefix="/api/evaluation", tags=["evaluation"])
 
@@ -13,7 +15,10 @@ class ScoreRequest(BaseModel):
 
 
 @router.get("/predictions")
-def get_stored_predictions(match_date: str = Query(default=None)) -> dict[str, Any]:
+def get_stored_predictions(
+    _: Annotated[str, Depends(get_approved_user)],
+    match_date: str = Query(default=None),
+) -> dict[str, Any]:
     """Return stored pre-match predictions for a given date."""
     from src.evaluation.evaluation_service import EvaluationService
 
@@ -29,7 +34,10 @@ def get_stored_predictions(match_date: str = Query(default=None)) -> dict[str, A
 
 
 @router.post("/score")
-def score_predictions(body: ScoreRequest) -> dict[str, Any]:
+def score_predictions(
+    body: ScoreRequest,
+    _: Annotated[str, Depends(get_approved_user)],
+) -> dict[str, Any]:
     """Score stored predictions against provided actual results."""
     from src.evaluation.evaluation_service import EvaluationService
 

@@ -33,7 +33,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) return null;
   if (!session) return <Navigate to="/login" replace />;
-  if (profile && !profile.approved) return <AccessRevoked />;
+  if (!profile || !profile.approved) return <AccessRevoked />;
 
   return <>{children}</>;
 }

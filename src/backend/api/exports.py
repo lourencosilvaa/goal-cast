@@ -2,16 +2,19 @@ import json
 import tempfile
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse, Response
+
+from src.backend.core.auth import get_approved_user
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 
 @router.get("")
 def export_predictions(
+    _: Annotated[str, Depends(get_approved_user)],
     format: str = Query(default="csv", pattern="^(csv|excel)$"),
     report_date: str = Query(default=None),
 ) -> Response:

@@ -1,9 +1,12 @@
 """Predictions endpoint — returns ML predictions grouped by league."""
 
 import asyncio
+from typing import Annotated
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
+
+from src.backend.core.auth import get_approved_user
 
 router = APIRouter(prefix="/api", tags=["predictions"])
 
@@ -90,7 +93,10 @@ class LeaguePredictionsResponse(BaseModel):
 
 
 @router.get("/dates", response_model=list[str])
-async def get_available_dates(request: Request) -> list[str]:
+async def get_available_dates(
+    request: Request,
+    _: Annotated[str, Depends(get_approved_user)],
+) -> list[str]:
     """Return sorted fixture dates (DD/MM/YYYY) for supported leagues."""
     service = request.app.state.prediction_service
     return await asyncio.to_thread(service.get_available_dates)
@@ -99,6 +105,7 @@ async def get_available_dates(request: Request) -> list[str]:
 @router.get("/predictions", response_model=list[LeaguePredictionsResponse])
 async def get_all_predictions(
     request: Request,
+    _: Annotated[str, Depends(get_approved_user)],
     date: str | None = Query(None, description="Date in DD/MM/YYYY format"),
 ) -> list[LeaguePredictionsResponse]:
     """Get predictions for all leagues with fixtures today."""
@@ -116,6 +123,7 @@ async def get_all_predictions(
 async def get_league_predictions(
     league_code: str,
     request: Request,
+    _: Annotated[str, Depends(get_approved_user)],
     date: str | None = Query(None, description="Date in DD/MM/YYYY format"),
 ) -> LeaguePredictionsResponse:
     """Get predictions for a specific league."""
@@ -129,6 +137,7 @@ async def get_league_predictions(
 @router.post("/predictions/refresh")
 async def refresh_predictions(
     request: Request,
+    _: Annotated[str, Depends(get_approved_user)],
     league_code: str | None = Query(None),
 ) -> dict[str, str]:
     """Invalidate cache and recompute predictions."""

@@ -7,7 +7,7 @@ from google.genai.errors import APIError, ClientError, ServerError
 from pydantic import BaseModel
 
 from src.backend.api.keys import get_api_key_service
-from src.backend.core.auth import get_current_user
+from src.backend.core.auth import get_approved_user
 from src.backend.services.api_key_service import ApiKeyService
 
 router = APIRouter(prefix="/api", tags=["ai"])
@@ -26,7 +26,7 @@ class AIAnalysisResponse(BaseModel):
 @router.post("/ai/analyze", response_model=AIAnalysisResponse)
 async def analyze_match(
     body: AIAnalysisRequest,
-    user_id: Annotated[str, Depends(get_current_user)],
+    user_id: Annotated[str, Depends(get_approved_user)],
     service: Annotated[ApiKeyService, Depends(get_api_key_service)],
 ) -> AIAnalysisResponse:
     """Generate AI-powered match analysis using the user's stored Gemini key."""

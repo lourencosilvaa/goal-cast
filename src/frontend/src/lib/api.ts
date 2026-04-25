@@ -11,20 +11,23 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 export async function fetchAvailableDates(): Promise<string[]> {
-  const res = await fetch(`${BASE}/api/dates`);
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/dates`, { headers });
   if (!res.ok) throw new Error('Failed to fetch dates');
   return res.json();
 }
 
 export async function fetchLeagues(): Promise<League[]> {
-  const res = await fetch(`${BASE}/api/leagues`);
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/leagues`, { headers });
   if (!res.ok) throw new Error('Failed to fetch leagues');
   return res.json();
 }
 
 export async function fetchAllPredictions(date?: string): Promise<LeaguePredictions[]> {
+  const headers = await authHeaders();
   const params = date ? `?date=${encodeURIComponent(date)}` : '';
-  const res = await fetch(`${BASE}/api/predictions${params}`);
+  const res = await fetch(`${BASE}/api/predictions${params}`, { headers });
   if (!res.ok) throw new Error('Failed to fetch predictions');
   return res.json();
 }
@@ -33,21 +36,24 @@ export async function fetchLeaguePredictions(
   leagueCode: string,
   date?: string,
 ): Promise<LeaguePredictions> {
+  const headers = await authHeaders();
   const params = date ? `?date=${encodeURIComponent(date)}` : '';
-  const res = await fetch(`${BASE}/api/predictions/${leagueCode}${params}`);
+  const res = await fetch(`${BASE}/api/predictions/${leagueCode}${params}`, { headers });
   if (!res.ok) throw new Error('Failed to fetch predictions');
   return res.json();
 }
 
 export async function refreshPredictions(leagueCode?: string): Promise<void> {
+  const headers = await authHeaders();
   const params = leagueCode ? `?league_code=${leagueCode}` : '';
-  await fetch(`${BASE}/api/predictions/refresh${params}`, { method: 'POST' });
+  await fetch(`${BASE}/api/predictions/refresh${params}`, { method: 'POST', headers });
 }
 
 export async function downloadExport(format: 'csv' | 'excel', date?: string): Promise<void> {
+  const headers = await authHeaders();
   const params = new URLSearchParams({ format });
   if (date) params.set('report_date', date);
-  const res = await fetch(`${BASE}/api/export?${params}`);
+  const res = await fetch(`${BASE}/api/export?${params}`, { headers });
   if (!res.ok) throw new Error('Export failed');
   const blob = await res.blob();
   const ext = format === 'excel' ? 'xlsx' : 'csv';

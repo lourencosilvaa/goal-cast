@@ -7,6 +7,7 @@ from supabase import Client
 from src.backend.core.encryption import EncryptionService
 
 _TABLE = "user_api_keys"
+_SERVICE_GEMINI = "gemini"
 
 
 class ApiKeyService:
@@ -17,24 +18,31 @@ class ApiKeyService:
     def get_user_key(self, user_id: str) -> Optional[str]:
         response = (
             self._db.table(_TABLE)
-            .select("encrypted_gemini_key")
+            .select("key_enc")
             .eq("user_id", user_id)
+            .eq("service", _SERVICE_GEMINI)
             .maybe_single()
             .execute()
         )
         data: Optional[dict] = response.data  # type: ignore[union-attr,assignment]
         if data is None:
             return None
-        return self._enc.decrypt(str(data["encrypted_gemini_key"]))
+        return self._enc.decrypt(str(data["key_enc"]))
 
     def set_user_key(self, user_id: str, plaintext_key: str) -> None:
         if not plaintext_key:
             raise ValueError("Gemini key cannot be empty")
         encrypted = self._enc.encrypt(plaintext_key)
         self._db.table(_TABLE).upsert(
-            {"user_id": user_id, "encrypted_gemini_key": encrypted},
+            {
+                "user_id": user_id,
+                "service": _SERVICE_GEMINI,
+                "key_enc": encrypted,
+            },
             on_conflict="user_id",
         ).execute()
 
     def delete_user_key(self, user_id: str) -> None:
-        self._db.table(_TABLE).delete().eq("user_id", user_id).execute()
+        self._db.table(_TABLE).delete().eq("user_id", user_id).eq(
+            "service", _SERVICE_GEMINI
+        ).execute()
