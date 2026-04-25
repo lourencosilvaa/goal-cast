@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, Settings, TrendingUp } from 'lucide-react';
+import { BarChart3, Settings, TrendingUp, ShieldCheck } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: BarChart3 },
@@ -8,6 +9,8 @@ const navItems = [
 ];
 
 export function MobileNav() {
+  const { profile } = useAuth();
+
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass border-t border-white/[0.06]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
@@ -29,6 +32,22 @@ export function MobileNav() {
             {item.label}
           </NavLink>
         ))}
+
+        {profile?.is_admin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] transition-all ${
+                isActive
+                  ? 'text-purple-400 drop-shadow-[0_0_6px_rgba(168,85,247,0.5)]'
+                  : 'text-white/40'
+              }`
+            }
+          >
+            <ShieldCheck className="w-5 h-5" />
+            Admin
+          </NavLink>
+        )}
       </div>
     </nav>
   );

@@ -100,13 +100,6 @@ class OutputConfig(BaseModel):
     exports_dir: str = "output/exports"
 
 
-class FootballDataOrgConfig(BaseModel):
-    base_url: str = "https://api.football-data.org/v4"
-    api_key: str = ""
-    request_timeout: int = 10
-    competitions: dict[str, str] = {}
-
-
 class OddsAPIConfig(BaseModel):
     api_key: str = ""
     regions: str = "eu"
@@ -121,6 +114,14 @@ class EvaluationConfig(BaseModel):
     storage_dir: str = "output/evaluation"
 
 
+class HuggingFaceConfig(BaseModel):
+    repo_id: str = ""
+    hf_token: str = ""
+    local_dir: str = "/tmp/hf_models"
+    model_filename: str = "ensemble_model.joblib"
+    dataset_subfolder: str = "datasets"
+
+
 class Config(BaseModel):
     app: AppConfig
     data: DataConfig
@@ -129,10 +130,10 @@ class Config(BaseModel):
     scrapers: ScrapersConfig
     analysis: AnalysisConfig
     output: OutputConfig
-    football_data_org: FootballDataOrgConfig = FootballDataOrgConfig()
     odds_api: OddsAPIConfig = OddsAPIConfig()
     retrain_check: RetrainCheckConfig = RetrainCheckConfig()
     evaluation: EvaluationConfig = EvaluationConfig()
+    huggingface: HuggingFaceConfig = HuggingFaceConfig()
 
 
 def load_config(path: str | Path = "config/config.yaml") -> Config:

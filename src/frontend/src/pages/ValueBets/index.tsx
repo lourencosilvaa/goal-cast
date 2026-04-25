@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, Loader2, Calendar } from 'lucide-react';
+import { TrendingUp, Loader2, Calendar, Download } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { fetchAvailableDates, fetchLeagues, fetchLeaguePredictions } from '@/lib/api';
+import { NeonButton } from '@/components/ui/NeonButton';
+import { fetchAvailableDates, fetchLeagues, fetchLeaguePredictions, downloadExport } from '@/lib/api';
 import type { ValueBet } from '@/types';
 
 interface FlatValueBet extends ValueBet {
@@ -35,6 +36,7 @@ export function ValueBetsPage() {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   // Track which dates have been fetched
   const fetchedRef = useRef<Set<string>>(new Set());
 
@@ -93,6 +95,15 @@ export function ValueBetsPage() {
     setSelectedDate(date);
   }, []);
 
+  async function handleExport(format: 'csv' | 'excel') {
+    setExporting(true);
+    try {
+      await downloadExport(format, selectedDate);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -103,22 +114,32 @@ export function ValueBetsPage() {
           </p>
         </div>
 
-        {availableDates.length > 0 && (
-          <div className="relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 pointer-events-none" />
-            <select
-              value={selectedDate}
-              onChange={(e) => handleDateChange(e.target.value)}
-              className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-white/[0.03] border border-white/[0.06] text-white/80 cursor-pointer focus:outline-none focus:border-green-500/30 backdrop-blur-sm"
-            >
-              {availableDates.map((d) => (
-                <option key={d} value={d} className="bg-[#0e0e16] text-white">
-                  {d === todayStr() ? `Hoje (${formatDateLabel(d)})` : formatDateLabel(d)}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {availableDates.length > 0 && (
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 pointer-events-none" />
+              <select
+                value={selectedDate}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-white/[0.03] border border-white/[0.06] text-white/80 cursor-pointer focus:outline-none focus:border-green-500/30 backdrop-blur-sm"
+              >
+                {availableDates.map((d) => (
+                  <option key={d} value={d} className="bg-[#0e0e16] text-white">
+                    {d === todayStr() ? `Hoje (${formatDateLabel(d)})` : formatDateLabel(d)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <NeonButton variant="secondary" size="sm" loading={exporting} onClick={() => handleExport('csv')}>
+            <Download className="w-3.5 h-3.5 mr-1.5 inline" />
+            CSV
+          </NeonButton>
+          <NeonButton variant="secondary" size="sm" loading={exporting} onClick={() => handleExport('excel')}>
+            <Download className="w-3.5 h-3.5 mr-1.5 inline" />
+            Excel
+          </NeonButton>
+        </div>
       </div>
 
       {loading ? (

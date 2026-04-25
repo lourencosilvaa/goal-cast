@@ -18,18 +18,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from config.config_loader import AppConfig
+from config.config_loader import Config
 from src.analysis.match_stats import MatchStats, MatchStatsCalculator
 from src.analysis.value_detector import ValueBet, ValueDetector
 from src.models.data_cleaner import DataCleaner
 from src.models.data_loader import FootballDataLoader
 from src.models.elo import FootballELO
 from src.models.feature_engineer import FeatureEngineer
-from src.models.football_data_org_loader import (
-    ConfigurationError,
-    FootballDataOrgLoader,
-    OrgLoaderConfig,
-)
 from src.models.predictor import MatchPrediction, MatchPredictor
 from src.scrapers.base_scraper import ScrapedOdds
 from src.scrapers.fixtures_fetcher import (
@@ -64,14 +59,12 @@ class LeaguePredictions:
 class PredictionService:
     """Manages predictions with caching."""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: Config) -> None:
         self.config = config
         self._cache: OrderedDict[str, LeaguePredictions] = OrderedDict()
         self._model_dir = Path(config.output.models_dir)
         self._predictor: MatchPredictor | None = None
         self._league_data_cache: dict[str, pd.DataFrame] = {}
-        self._org_loader: FootballDataOrgLoader | None = None
-        self._org_loader_initialized = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -88,10 +81,7 @@ class PredictionService:
             self._cache.move_to_end(cache_key)  # LRU touch
             return self._cache[cache_key]
 
-        if self._is_org_league(league_code):
-            result = self._compute_predictions_org(league_code, resolved_date)
-        else:
-            result = self._compute_predictions(league_code, resolved_date)
+        result = self._compute_predictions(league_code, resolved_date)
         self._cache[cache_key] = result
         # Evict oldest entries when cache grows too large
         while len(self._cache) > MAX_CACHE_ENTRIES:
@@ -111,16 +101,6 @@ class PredictionService:
             except Exception as e:
                 print(f"Error loading {league_code}: {e}")
 
-        org_loader = self._get_org_loader()
-        if org_loader:
-            for league_code in self.config.football_data_org.competitions:
-                try:
-                    result = self.get_league_predictions(league_code, target_date)
-                    if result.fixtures:
-                        results.append(result)
-                except Exception as e:
-                    print(f"Error loading org league {league_code}: {e}")
-
         return results
 
     def get_available_dates(self) -> list[str]:
@@ -129,16 +109,6 @@ class PredictionService:
 
         league_codes = list(self.config.data.leagues.keys())
         dates: set[str] = set(fetch_available_dates(league_codes))
-
-        org_loader = self._get_org_loader()
-        if org_loader:
-            for competition in self.config.football_data_org.competitions:
-                try:
-                    org_dates = org_loader.fetch_available_upcoming_dates(competition)
-                    dates.update(org_dates)
-                except Exception as e:
-                    print(f"Error fetching org dates for {competition}: {e}")
-
         return sorted(dates, key=lambda d: _dt.strptime(d, "%d/%m/%Y"))
 
     def invalidate_cache(self, league_code: str | None = None) -> None:
@@ -155,27 +125,6 @@ class PredictionService:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _get_org_loader(self) -> FootballDataOrgLoader | None:
-        """Lazily create org loader; returns None when API key is not configured."""
-        if self._org_loader_initialized:
-            return self._org_loader
-        self._org_loader_initialized = True
-        try:
-            org_config = self.config.football_data_org
-            loader_config = OrgLoaderConfig(
-                api_key=org_config.api_key,
-                base_url=org_config.base_url,
-                request_timeout=org_config.request_timeout,
-                competitions=dict(org_config.competitions),
-            )
-            self._org_loader = FootballDataOrgLoader(loader_config)
-        except ConfigurationError:
-            self._org_loader = None
-        return self._org_loader
-
-    def _is_org_league(self, league_code: str) -> bool:
-        return league_code in self.config.football_data_org.competitions
 
     def _get_predictor(self) -> MatchPredictor | None:
         """Lazily load the ML predictor (once)."""
@@ -194,7 +143,7 @@ class PredictionService:
         if league_code in self._league_data_cache:
             return self._league_data_cache[league_code]
 
-        loader = FootballDataLoader(self.config.data)
+        loader = FootballDataLoader(self.config.data, hf_config=self.config.huggingface)
         frames = []
         for season in self.config.data.seasons:
             df = loader.load_season(league_code, season)
@@ -503,60 +452,6 @@ class PredictionService:
             league=fixture.league,
             match_date=fixture.date,
             sources=[scraped],
-        )
-
-    def _compute_predictions_org(
-        self, league_code: str, target_date: str
-    ) -> LeaguePredictions:
-        """Prediction pipeline for football-data.org competitions (no CSV history)."""
-        league_name = self.config.football_data_org.competitions.get(
-            league_code, league_code
-        )
-        org_loader = self._get_org_loader()
-        if not org_loader:
-            return LeaguePredictions(
-                league_code=league_code,
-                league_name=league_name,
-                fixtures=[],
-                predictions=[],
-                match_stats=[],
-                value_bets=[],
-            )
-
-        raw_fixtures = org_loader.fetch_upcoming_fixtures(league_code, target_date)
-        fixtures = [
-            Fixture(
-                division=f["division"],
-                league=f["league"],
-                date=f["date"],
-                time=f["time"],
-                home_team=f["home_team"],
-                away_team=f["away_team"],
-                b365_home=0.0,
-                b365_draw=0.0,
-                b365_away=0.0,
-            )
-            for f in raw_fixtures
-        ]
-
-        if not fixtures:
-            return LeaguePredictions(
-                league_code=league_code,
-                league_name=league_name,
-                fixtures=[],
-                predictions=[],
-                match_stats=[],
-                value_bets=[],
-            )
-
-        predictions = [self._predict_from_odds(f) for f in fixtures]
-        return LeaguePredictions(
-            league_code=league_code,
-            league_name=league_name,
-            fixtures=fixtures,
-            predictions=predictions,
-            match_stats=[None] * len(fixtures),
-            value_bets=[],
         )
 
     def _compute_predictions(

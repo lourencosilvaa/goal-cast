@@ -7,11 +7,14 @@ app:
 data:
   base_url: "https://www.football-data.co.uk/mmz4281"
   seasons:
+    - "2526"
     - "2425"
     - "2324"
     - "2223"
     - "2122"
     - "2021"
+    - "1920"
+    - "1819"
   leagues:
     E0: "Premier League"
     SP1: "La Liga"
@@ -104,11 +107,6 @@ analysis:
     bookmaker_avg: 0.30
     best_odds: 0.20
 
-football_data_org:
-  base_url: "https://api.football-data.org/v4"
-  api_key: ""
-  request_timeout: 10
-
 odds_api:
   api_key: ""  # Set via THE_ODDS_API_KEY env var. Free tier: 500 req/month
   regions: "eu"
@@ -119,6 +117,17 @@ odds_api:
     ECL: "UEFA Conference League"
     FA: "FA Cup"
     CDR: "Copa del Rey"
+
+huggingface:
+  repo_id: ""  # Set via HF_REPO_ID env var
+  hf_token: ""  # Set via HF_TOKEN env var
+  local_dir: "/tmp/hf_models"  # Override via HF_LOCAL_DIR env var
+  model_filename: "ensemble_model.joblib"
+  dataset_subfolder: "datasets"
+
+supabase:
+  url: ""  # Set via SUPABASE_URL env var
+  service_key: ""  # Set via SUPABASE_SERVICE_KEY env var
 
 retrain_check:
   enabled: true

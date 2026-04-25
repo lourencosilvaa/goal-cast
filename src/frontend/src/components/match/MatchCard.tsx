@@ -44,16 +44,11 @@ export function MatchCard({ match, index }: MatchCardProps) {
   const hasValueBets = match.value_bets.length > 0;
 
   async function handleAiAnalysis() {
-    const apiKey = localStorage.getItem('gemini_api_key') || '';
-    if (!apiKey) {
-      setAiError('Configura a API key do Gemini nas Definições');
-      return;
-    }
     const model = localStorage.getItem('gemini_model') || undefined;
     setAiLoading(true);
     setAiError(null);
     try {
-      const text = await analyzeMatch(apiKey, match as unknown as Record<string, unknown>, model);
+      const text = await analyzeMatch(match as unknown as Record<string, unknown>, model);
       setAiAnalysis(text);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'Erro na análise AI');

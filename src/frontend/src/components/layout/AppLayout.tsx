@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AuroraBackground } from '@/components/ui/AuroraBackground';
+import { RetrainingBanner } from '@/components/RetrainingBanner';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 
@@ -12,6 +13,7 @@ export function AppLayout() {
       <AuroraBackground />
       <Sidebar />
       <main className="flex-1 overflow-y-auto scrollbar-hide relative z-10">
+        <RetrainingBanner />
         <div className="p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div

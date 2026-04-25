@@ -113,6 +113,11 @@ def main() -> None:
     last_match_date_str = latest_date.strftime("%Y-%m-%d") if latest_date and not pd.isna(latest_date) else None
     trainer.save_model(output_dir, last_match_date=last_match_date_str)
 
+    # Collect the seasons that contributed data to the model
+    seasons_trained: list[str] = []
+    if "Season" in raw_data.columns:
+        seasons_trained = sorted(raw_data["Season"].dropna().unique().tolist())
+
     # Save training results
     results_path = Path(output_dir) / "training_results.json"
     results_path.parent.mkdir(parents=True, exist_ok=True)
@@ -125,11 +130,14 @@ def main() -> None:
                 "samples_count": len(X),
                 "feature_names": feature_names,
                 "last_match_date": last_match_date_str,
+                "seasons_trained": seasons_trained,
             },
             f,
             indent=2,
         )
     print(f"\nTraining results saved to {results_path}")
+    if seasons_trained:
+        print(f"Seasons trained: {', '.join(seasons_trained)}")
 
 
 if __name__ == "__main__":

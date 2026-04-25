@@ -1,299 +1,463 @@
 # Football Prediction Agent
 
-A GitHub Copilot Agent that combines ML ensemble predictions with real-time contextual intelligence (injuries, team news, suspensions, lineups) to produce adjusted probabilities and identify value betting opportunities across Europe's top leagues.
+A full-stack web application that combines a **ML ensemble model** with **AI-powered contextual analysis** (via Google Gemini) to generate football match predictions and identify value betting opportunities across Europe's top leagues.
 
-## Architecture
+---
+
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              LAYER 1 — DATA INGESTION                    │
-│  football-data.co.uk │ football-data.org API             │
-│  5 seasons × 6 leagues │ 24h cache TTL                   │
+│                   FRONTEND (React/Vite)                  │
+│  Dashboard │ Value Bets │ Settings │ Admin Panel         │
+│  Supabase Auth (email/password) │ Per-user Gemini key   │
 └────────────────────────┬────────────────────────────────┘
-                         │
+                         │ HTTPS
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│           LAYER 2 — FEATURE ENGINEERING                  │
-│  Rolling stats (5-match) │ ELO ratings (K=32)            │
-│  xG proxy │ Fatigue │ H2H │ Draw features               │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
+│                  BACKEND (FastAPI)                        │
+│  /api/predictions │ /api/leagues │ /api/ai/analyze       │
+│  /api/admin │ /api/keys │ /api/export │ /api/status      │
+└──────────┬──────────────────────┬───────────────────────┘
+           │                      │
+           ▼                      ▼
+┌──────────────────┐   ┌──────────────────────────────────┐
+│  Hugging Face    │   │            Supabase               │
+│  Private Repo    │   │  Auth │ user_profiles             │
+│  ML model files  │   │  user_api_keys │ app_settings     │
+│  + datasets/     │   └──────────────────────────────────┘
+│  (Parquet files) │
+└──────────────────┘
+           │
+           ▼
 ┌─────────────────────────────────────────────────────────┐
-│            LAYER 3 — ML ENSEMBLE MODEL                   │
-│  Logistic Regression │ Random Forest │ XGBoost           │
-│  Soft Voting [1:1:2] │ TimeSeriesSplit CV (5-fold)       │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│          LAYER 4 — ODDS & MATCH STATISTICS               │
-│  B365 odds (football-data.co.uk fixtures CSV)            │
-│  Poisson xG │ Over/Under │ BTTS │ Top scorelines         │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│              LAYER 5 — ANALYSIS                          │
-│  Value bet detection (edge ≥ 3%)                         │
-│  KL divergence │ Kelly Criterion (capped 25%)            │
-│  Probability blending (50% ML / 30% BK / 20% best)      │
-└────────────────────────┬────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│           LAYER 6 — COPILOT AGENT                        │
-│  Context research (injuries, suspensions, lineups)       │
-│  Probability adjustment │ HTML report (PT-PT)            │
-│  Natural-language insights │ Value bet recommendations   │
+│               ML PIPELINE (5 layers)                     │
+│  HuggingFace datasets/ (8 seasons × 6 leagues)          │
+│  Feature Engineering → Ensemble Model → Value Detection  │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Pipeline — Layer by Layer
+## ML Pipeline
 
-### Layer 1: Data Ingestion
+### Data Ingestion
 
-Historical match data is loaded from [football-data.co.uk](https://www.football-data.co.uk/) covering **5 seasons** across **6 leagues**:
+Historical match data covers **8 seasons** across **6 leagues**, sourced from [football-data.co.uk](https://www.football-data.co.uk/) and stored on **Hugging Face** as per-league Parquet files (no local disk required on Render):
 
 | League | Code | Seasons |
 |--------|------|---------|
-| Premier League | `E0` | 2020/21 → 2024/25 |
-| La Liga | `SP1` | 2020/21 → 2024/25 |
-| Bundesliga | `D1` | 2020/21 → 2024/25 |
-| Serie A | `I1` | 2020/21 → 2024/25 |
-| Ligue 1 | `F1` | 2020/21 → 2024/25 |
-| Liga Portugal | `P1` | 2020/21 → 2024/25 |
+| Premier League | `E0` | 2018/19 → 2025/26 |
+| La Liga | `SP1` | 2018/19 → 2025/26 |
+| Bundesliga | `D1` | 2018/19 → 2025/26 |
+| Serie A | `I1` | 2018/19 → 2025/26 |
+| Ligue 1 | `F1` | 2018/19 → 2025/26 |
+| Liga Portugal | `P1` | 2018/19 → 2025/26 |
 
-Data is cached locally in `datasets/cache/` with a **24-hour TTL** to avoid redundant downloads.
+**Data source priority:** HuggingFace Parquet → local CSV cache (24 h TTL) → football-data.co.uk download. On Render (ephemeral filesystem), all data comes from HuggingFace. The weekly GitHub Action refreshes data from the web and re-uploads to HF.
 
-**Columns retained**: Date, HomeTeam, AwayTeam, full-time & half-time goals/results, shots/shots on target, fouls, corners, cards, and Bet365 odds (B365H/D/A).
+**Columns retained**: Date, teams, full-time & half-time goals/results, shots, fouls, corners, cards, and Bet365 odds (B365H/D/A).
 
-A secondary loader fetches data from the [football-data.org API](https://api.football-data.org/v4) for cup competitions (Champions League, Europa League, Conference League, FA Cup, Copa del Rey), also cached with 24h TTL.
+**Training metadata** is stored in `training_results.json` (uploaded to HF alongside the model) and includes the `seasons_trained` field — the exact list of seasons that contributed data to the current model.
 
-### Layer 2: Feature Engineering
+### Feature Engineering
 
-Raw match data is transformed into predictive features through the following pipeline:
+| Feature Group | Description |
+|---------------|-------------|
+| Rolling stats | 5-match rolling averages: goals, shots, corners, fouls, points |
+| ELO ratings | K=32, home advantage +65, initial rating 1500 |
+| xG proxy | Historical conversion rates (SoT 30%, shots 3%), no same-match leakage |
+| Fatigue | Rest days between matches, fatigue flag (≤3 days), midweek flag |
+| Head-to-Head | Last 5 meetings: win %, draw %, avg total goals |
+| Draw features | Historical draw rates, form gap, attack/defense similarity |
 
-#### Rolling Statistics (5-match window)
-Per-team rolling averages computed over the last 5 matches:
-- Goals for / Goals against
-- Shots / Shots on target
-- Corners / Fouls
-- Points per game (form)
+### Ensemble Model
 
-#### ELO Rating System
-FIFA-style rating using the formula: `R_new = R_old + K × M × (S - E)`
-
-| Parameter | Value |
-|-----------|-------|
-| K-Factor | `32` |
-| Home Advantage | `+65` ELO points |
-| Initial Rating | `1500` |
-| Margin Multiplier | `log(goal_diff + 1)` |
-| Expected Score | `E = 1 / (1 + 10^((R_opp - R_team) / 400))` |
-
-Features generated: `elo_home`, `elo_away`, `elo_diff`, `elo_expected_home`, `elo_expected_away`.
-
-#### xG Proxy (No Same-Match Leakage)
-Rolling expected goals built from historical conversion rates:
-- Shots on target → xG: **30%** conversion rate
-- Regular shots → xG: **3%** conversion rate
-
-Features: `home_xG_rolling`, `away_xG_rolling`, `home_xGA_rolling`, `away_xGA_rolling`, `xG_diff`.
-
-#### Fatigue Features
-- Rest days between matches (capped at 30 days, default 14 for first match)
-- Fatigue flag: `≤3 days` rest
-- Midweek flag: Tuesday (1) / Wednesday (2)
-
-#### Head-to-Head Features (last 5 meetings)
-- `h2h_home_wins` — Win fraction from the home team's perspective
-- `h2h_draws` — Draw fraction
-- `h2h_total_goals_avg` — Average total goals
-
-#### Draw-Specific Features
-- `home_draw_pct`, `away_draw_pct`, `avg_draw_pct` — Historical draw rates
-- `form_gap` — Absolute form difference (similar form → more draws)
-- `attack_similarity` — `1 / (1 + |GF_diff|)`
-- `defense_similarity` — `1 / (1 + |GA_diff|)`
-- `combined_defensive` — `1/(1+home_GA) + 1/(1+away_GA)` (both teams defensive → draws)
-
-### Layer 3: ML Ensemble Model
-
-Four classifiers are trained and combined into a soft-voting ensemble:
+Four classifiers combined via soft voting (weights `[1, 1, 2]`):
 
 | Model | Key Hyperparameters |
-|-------|-------------------|
-| **Logistic Regression** | `C=0.5`, `max_iter=1000`, `class_weight="balanced"` |
-| **Random Forest** | `n_estimators=200`, `max_depth=8`, `min_samples_leaf=10`, `class_weight="balanced"` |
-| **XGBoost** | `n_estimators=200`, `max_depth=5`, `learning_rate=0.05`, `subsample=0.8`, `colsample_bytree=0.8` |
-| **Gradient Boosting** | `n_estimators=150`, `max_depth=4`, `learning_rate=0.08` |
+|-------|---------------------|
+| Logistic Regression | `C=0.5`, `max_iter=1000`, `class_weight=balanced` |
+| Random Forest | `n_estimators=200`, `max_depth=8`, `min_samples_leaf=10` |
+| XGBoost (×2 weight) | `n_estimators=200`, `max_depth=5`, `lr=0.05`, `subsample=0.8` |
+| Gradient Boosting | `n_estimators=150`, `max_depth=4`, `lr=0.08` (comparison only) |
 
-**Ensemble**: Soft voting with weights **[1, 1, 2]** (LR, RF, XGB) — XGBoost gets double weight due to superior individual performance. Gradient Boosting is trained for comparison but not included in the final ensemble.
+Cross-validation uses `TimeSeriesSplit` with 5 folds to prevent data leakage. Output: 3-class probabilities (Home Win / Draw / Away Win).
 
-**Cross-validation**: `TimeSeriesSplit` with **5 folds** to prevent future data leakage. Metrics reported: accuracy and log loss (mean ± std). Data is scaled with `StandardScaler` and split 80/20 for train/test.
+### Value Bet Detection
 
-**Feature exclusions**: Odds-derived features (`norm_prob_*`, `odds_prob_*`, `odds_spread`) and same-match xG features (`home_xG_proxy`, `away_xG_proxy`, `home_xG_overperf`, `away_xG_overperf`) are excluded to prevent the model from simply copying bookmaker odds.
+A value bet is flagged when `ML probability > bookmaker implied probability + 3%`.
 
-**Output**: 3-class probabilities — Away Win (0), Draw (1), Home Win (2). The predicted outcome is the class with the highest probability; confidence equals that maximum probability.
-
-### Layer 4: Odds & Match Statistics
-
-#### Odds
-Bet365 odds are fetched from football-data.co.uk's fixtures CSV and converted to implied probabilities. These serve as the market baseline to compare against ML predictions.
-
-#### Poisson Match Statistics
-Match-level statistics are computed using a **Poisson distribution** model:
-
-- **xG (Expected Goals)**: `home_attack × away_defense / league_avg` (clamped to 0.3–4.0 for home, 0.2–3.5 for away)
-- **Over/Under**: `P(Over N) = 1 - P(≤N)` from Poisson CDF
-- **BTTS**: `1 - P(home scores 0) - P(away scores 0) + P(0-0)`
-- **Top scorelines**: Top 8 most probable scorelines ranked by `P(h) × P(a)` from independent Poisson distributions
-
-Team stats are computed from the most recent **10 matches** per team (goals scored/conceded, shots, corners, clean sheet %, BTTS %, over 2.5 %, form points).
-
-### Layer 5: Analysis
-
-#### Value Bet Detection
-A value bet exists when:
-```
-ML_Probability > Bookmaker_Implied_Probability + min_edge
-```
-
-| Threshold | Value |
-|-----------|-------|
-| Minimum edge to report | **3%** (`0.03`) |
-| Value divergence threshold | **5%** (`0.05`) |
-
-#### Kelly Criterion
-Optimal bet sizing: `f = (b × p - q) / b` where `b = odds - 1`, `p = ML probability`, `q = 1 - p`. **Capped at 25%** of bankroll.
-
-#### Confidence Levels
-
-| Level | Criteria |
-|-------|----------|
-| **HIGH / ALTA** | edge ≥ 10% AND probability ≥ 50% |
-| **MEDIUM / MÉDIA** | edge ≥ 5% AND probability ≥ 35% |
-| **LOW / BAIXA** | Everything else |
-
-#### KL Divergence
-Measures information-theoretic distance between ML and bookmaker distributions:
-```
-KL(ML ‖ BK) = Σ ML_prob × ln(ML_prob / BK_prob)
-```
-
-Additional divergence features: signed/absolute divergence per outcome, max divergence, sources agreement (whether ML and bookmaker agree on the favourite).
-
-#### Probability Blending
-Final blended probabilities combine multiple signals:
-- **50%** ML model predictions
-- **30%** bookmaker average implied probabilities
-- **20%** best available odds (from aggregator)
-
-### Layer 6: Copilot Agent (Context & Reporting)
-
-The Copilot Agent adds a reasoning layer on top of the statistical pipeline:
-
-1. **Context research** — Searches the web for injuries, suspensions, lineup news, managerial changes, and motivation factors from official club sites, Transfermarkt, and national/international sports press
-2. **Probability adjustment** — Applies contextual adjustments to ML base probabilities (±1–15% depending on severity)
-3. **HTML report generation** — Produces a full report in **Português de Portugal (PT-PT)** with match cards, value bets, Poisson stats, and NLP-generated analysis
-4. **Value bet re-evaluation** — Context may invalidate ML-flagged value bets (e.g., star player injured) or reveal new ones the model missed
+- **Kelly Criterion** stake sizing: `f = (b×p − q) / b`, capped at 25%
+- **KL divergence** between ML and bookmaker distributions
+- **Blended probabilities**: 50% ML + 30% bookmaker average + 20% best odds
 
 ---
 
-## Quick Start
+## Application Features
 
-```bash
-# Install dependencies
-uv sync
+### Dashboard
+- Daily match predictions for all 6 leagues
+- Confidence levels and blended probabilities
+- AI analysis per match (Google Gemini)
+- Export predictions to CSV or Excel
 
-# Install Playwright browsers (for scraping)
-uv run playwright install chromium
+### Value Bets
+- Auto-detected value opportunities (edge ≥ 3%)
+- Kelly stake recommendations and KL divergence scores
 
-# Train the model (from football-data.co.uk)
-uv run python scripts/train_model.py
+### Settings
+- Per-user Google Gemini API key (stored encrypted in Supabase)
+- Gemini model selection (2.5 Flash / 2.5 Pro / 2.0 Flash / 2.0 Flash Lite)
 
-# Or train from local data
-uv run python scripts/train_model.py --local-data datasets/joined_data.csv
+### Admin Panel
+- Create new users (invite-only)
+- Approve or revoke user access
+- Real-time user list with status badges (Admin / Active / Revoked)
 
-# Scrape current odds
-uv run python scripts/scrape_odds.py --league "Liga Portugal"
+### Auth
+- Email/password login via Supabase
+- Self-registration — new accounts require admin approval before access
+- Pending approval screen shown to unapproved users
 
-# Find value bets (ML + odds)
-uv run python scripts/find_value_bets.py --league "Liga Portugal"
+### Retraining Banner
+- Amber banner shown automatically when the ML model is being retrained
+- Polls backend every 30 seconds; dismissible per session
 
-# Run tests
-uv run pytest tests/ -v
-```
-
-## Copilot Agent Usage
-
-When using GitHub Copilot in this project, the agent is configured via `.github/copilot-instructions.md` to act as a Football Prediction Analyst. You can ask it things like:
-
-- "What are today's value bets for Liga Portugal?"
-- "Train the model and show me the results"
-- "Scrape odds from all Portuguese betting sites"
-- "Predict Arsenal vs Chelsea"
-- "Compare odds across Betclic, Betano, and Solverde"
-
-The agent will run the appropriate CLI scripts and interpret the results.
+---
 
 ## Project Structure
 
 ```
 football-prediction-agent/
 ├── .github/
-│   └── copilot-instructions.md   # Copilot agent brain
+│   └── workflows/
+│       ├── retrain.yml        # Weekly model retraining + HF upload + Render redeploy
+│       └── render.yaml        # Render deployment config (backend + frontend)
 ├── config/
-│   ├── config.yaml               # Centralized config
-│   └── config_loader.py          # Pydantic config loader
+│   ├── config.yaml            # Centralized configuration (no hardcoded values)
+│   └── config_loader.py       # Pydantic config loader (HuggingFaceConfig, DataConfig, …)
 ├── src/
-│   ├── models/                   # ML pipeline
-│   │   ├── data_loader.py        # Historical data (football-data.co.uk)
-│   │   ├── football_data_org_loader.py  # Cup data (football-data.org API)
-│   │   ├── data_cleaner.py       # Data cleaning
-│   │   ├── feature_engineer.py   # Feature engineering (rolling, ELO, xG, H2H)
-│   │   ├── elo.py                # ELO rating system (K=32)
-│   │   ├── trainer.py            # Model training (4 classifiers + ensemble)
-│   │   └── predictor.py          # Match prediction (3-class proba)
-│   ├── scrapers/                 # Odds sources
-│   │   ├── base_scraper.py       # Abstract base
-│   │   ├── betclic_scraper.py    # Betclic.pt
-│   │   ├── betano_scraper.py     # Betano.pt
-│   │   ├── solverde_scraper.py   # Solverde.pt
-│   │   ├── fixtures_fetcher.py   # B365 odds from fixtures CSV
-│   │   └── odds_aggregator.py    # Multi-source aggregator
-│   ├── analysis/                 # Analysis tools
-│   │   ├── value_detector.py     # Value bet detection (edge ≥ 3%)
-│   │   ├── divergence.py         # KL divergence & probability blending
-│   │   ├── match_stats.py        # Poisson model (xG, O/U, BTTS, scorelines)
-│   │   └── report_generator.py   # Report generation
-│   └── visualization/            # Output
-│       ├── html_report.py        # HTML report generator (PT-PT)
-│       └── plots.py              # Matplotlib charts
-├── scripts/                      # CLI entry points
-│   ├── train_model.py            # Train ML ensemble
-│   ├── scrape_odds.py            # Fetch B365 odds from fixtures CSV
-│   ├── predict_match.py          # Predict a single match
-│   └── find_value_bets.py        # Full pipeline: predict + stats + value + HTML
-├── tests/                        # Test suite (mirrors src/)
-├── datasets/                     # Historical data + cache
-├── output/                       # Reports (JSON + HTML), trained models
-└── pyproject.toml
+│   ├── backend/
+│   │   ├── api/
+│   │   │   ├── admin.py       # User management (list, create, approve/revoke)
+│   │   │   ├── ai.py          # Gemini match analysis
+│   │   │   ├── evaluation.py  # Model evaluation stats
+│   │   │   ├── exports.py     # CSV / Excel export
+│   │   │   ├── keys.py        # Per-user Gemini key CRUD
+│   │   │   ├── leagues.py     # Available leagues
+│   │   │   ├── predictions.py # Match predictions
+│   │   │   ├── profile.py     # User profile + self-registration
+│   │   │   └── status.py      # Retraining status flag
+│   │   ├── core/
+│   │   │   ├── auth.py              # JWT validation via Supabase
+│   │   │   ├── encryption.py        # Fernet symmetric encryption
+│   │   │   └── supabase_client.py   # Supabase service-role client singleton
+│   │   ├── services/
+│   │   │   ├── api_key_service.py       # Encrypted key storage
+│   │   │   ├── app_settings_service.py  # app_settings table CRUD
+│   │   │   ├── model_loader.py          # HuggingFace model + dataset download
+│   │   │   ├── prediction_service.py    # Core prediction logic
+│   │   │   └── user_service.py          # user_profiles table CRUD
+│   │   └── main.py            # FastAPI app with lifespan (model + datasets preload on startup)
+│   ├── frontend/              # React + TypeScript + Vite
+│   │   └── src/
+│   │       ├── components/    # GlassCard, NeonButton, RetrainingBanner, layout, …
+│   │       ├── contexts/      # AuthContext (Supabase session + profile)
+│   │       ├── lib/           # api.ts (all backend calls), supabase.ts
+│   │       ├── pages/         # Dashboard, ValueBets, Settings, Admin, Login
+│   │       └── App.tsx        # Routes (ProtectedRoute, AdminRoute)
+│   ├── models/                # ML pipeline (data_loader, feature_engineer, trainer, predictor)
+│   ├── scrapers/              # Odds scrapers (Betclic, Betano, Solverde)
+│   └── analysis/              # Value detection, KL divergence, Poisson match stats
+├── scripts/
+│   ├── train_model.py         # Train ML ensemble locally (writes seasons_trained to results)
+│   ├── upload_to_hf.py        # Upload model artefacts + per-league Parquet datasets to HF
+│   ├── find_value_bets.py     # Full prediction + value pipeline
+│   └── predict_match.py       # Predict a single match
+├── tests/                     # Test suite mirroring src/ (100% coverage on data_loader)
+├── datasets/cache/            # Local CSV cache from football-data.co.uk (ephemeral on Render)
+├── output/                    # Reports, trained models, exports
+├── Dockerfile                 # Backend Docker image (Python 3.12-slim + uv)
+└── pyproject.toml             # Python deps managed by uv
 ```
 
-## Key Concepts
+### HuggingFace Repo Layout
 
-### Value Bet Detection
-A value bet exists when the ML model estimates a higher probability for an outcome than what the bookmaker odds imply. The **edge** = ML probability − bookmaker implied probability. Minimum edge to report: **3%**. Divergence threshold: **5%**.
+After each weekly retrain, the HF repo contains:
 
-### Kelly Criterion
-Optimal bet sizing formula: `f = (b×p - q) / b` where `b = odds - 1`, `p = ML probability`, `q = 1 - p`. Capped at **25%** of bankroll to limit risk.
+```
+{HF_REPO_ID}/
+├── ensemble_model.joblib       # Trained ensemble
+├── scaler.joblib               # StandardScaler
+├── feature_names.joblib        # List of 59 feature names
+├── training_results.json       # CV scores, accuracy, seasons_trained, last_match_date
+└── datasets/
+    ├── E0.parquet              # Premier League — all seasons merged
+    ├── SP1.parquet             # La Liga
+    ├── D1.parquet              # Bundesliga
+    ├── I1.parquet              # Serie A
+    ├── F1.parquet              # Ligue 1
+    └── P1.parquet              # Liga Portugal
+```
 
-### Divergence Analysis
-Uses KL-divergence to measure how much the ML model and bookmakers disagree. Higher divergence = potential opportunity (or model error). Blended probabilities combine **50% ML**, **30% bookmaker average**, and **20% best odds**.
+Parquet format is ~3–5× smaller than CSV and loads in a single read per league on backend startup.
 
-### ELO Ratings
-FIFA-style rating system with K-factor of **32** and a home advantage of **+65 ELO points**. Teams start at **1500**, gain/lose points based on results adjusted for opponent strength and margin of victory (`log(goal_diff + 1)`).
+---
+
+## Deployment
+
+The app runs as two separate services on **Render**, backed by **Supabase** (auth + DB) and **Hugging Face** (model + dataset storage).
+
+### Services at a glance
+
+| Service | Type | Runtime |
+|---------|------|---------|
+| Backend API | Render Web Service | Docker (`Dockerfile` at repo root) |
+| Frontend | Render Static Site | Node build from `src/frontend` |
+| Database & Auth | Supabase | — |
+| ML Model + Datasets | Hugging Face Hub | Private repo (`datasets/` subfolder) |
+
+---
+
+### Step 1 — Supabase
+
+Create a Supabase project and run this SQL in the **SQL Editor**:
+
+```sql
+-- User profiles (access control)
+CREATE TABLE public.user_profiles (
+  user_id    UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email      TEXT NOT NULL,
+  approved   BOOLEAN NOT NULL DEFAULT false,
+  is_admin   BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_full_access" ON public.user_profiles
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "users_read_own_profile" ON public.user_profiles
+  FOR SELECT TO authenticated USING (auth.uid() = user_id);
+
+-- Encrypted per-user Gemini API keys
+CREATE TABLE public.user_api_keys (
+  user_id    UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  service    TEXT NOT NULL,
+  key_enc    TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.user_api_keys ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_full_access" ON public.user_api_keys
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- App settings (retraining flag, etc.)
+CREATE TABLE public.app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_full_access" ON public.app_settings
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Grant yourself admin access (run after your first login)
+INSERT INTO public.user_profiles (user_id, email, approved, is_admin)
+SELECT id, email, true, true
+FROM auth.users
+WHERE email = 'your-email@example.com'
+ON CONFLICT (user_id) DO UPDATE SET approved = true, is_admin = true;
+```
+
+From **Supabase → Settings → API**, collect:
+
+| Key | Used by |
+|-----|---------|
+| Project URL | Backend (`SUPABASE_URL`) + Frontend (`VITE_SUPABASE_URL`) |
+| `service_role` secret | Backend only (`SUPABASE_SERVICE_KEY`) — never expose |
+| `anon` public key | Frontend (`VITE_SUPABASE_ANON_KEY`) |
+
+---
+
+### Step 2 — Hugging Face
+
+1. Create a **private** model repository at [huggingface.co](https://huggingface.co/)
+2. Generate a **User Access Token** with write permissions
+3. Train and upload the initial model and datasets:
+
+```bash
+uv run python scripts/train_model.py
+HF_TOKEN=hf_... HF_REPO_ID=username/repo uv run python scripts/upload_to_hf.py
+```
+
+The upload script will:
+- Push model artefacts (`.joblib`, `.json`) to the repo root
+- Convert all CSV cache files to per-league Parquet files and push to `datasets/`
+
+Collect:
+- Token → `HF_TOKEN`
+- Repo ID (`username/repo-name`) → `HF_REPO_ID`
+
+---
+
+### Step 3 — Backend (Render Web Service)
+
+Create a **Web Service** on Render with runtime **Docker** pointing to the repo root.
+
+| Environment Variable | Description | How to obtain |
+|----------------------|-------------|---------------|
+| `SUPABASE_URL` | Supabase project URL | Supabase → Settings → API |
+| `SUPABASE_SERVICE_KEY` | Service role secret | Supabase → Settings → API |
+| `ENCRYPTION_KEY` | Fernet key for encrypting Gemini keys at rest | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `HF_TOKEN` | Hugging Face access token | HF → Settings → Tokens |
+| `HF_REPO_ID` | HF repo ID (`user/repo`) | Your HF repo page |
+| `RETRAIN_API_KEY` | Secret for the retraining webhook | `openssl rand -hex 32` |
+
+Set the **Health check path** to `/api/leagues`.
+
+On startup the backend downloads the entire HF repo (model + `datasets/` Parquet files) to `/tmp/hf_models`, then serves predictions directly from the Parquet files — no local CSV cache needed.
+
+After the service is created, copy its public URL — you'll need it for the frontend and GitHub Actions.
+
+---
+
+### Step 4 — Frontend (Render Static Site)
+
+Create a **Static Site** on Render:
+- **Build command**: `cd src/frontend && npm install && npm run build`
+- **Publish directory**: `src/frontend/dist`
+- **Rewrite rule**: `/* → /index.html`
+
+| Environment Variable | Value |
+|----------------------|-------|
+| `VITE_API_URL` | Backend Render URL (e.g. `https://football-agent-api.onrender.com`) |
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon public key |
+
+---
+
+### Step 5 — GitHub Actions Secrets
+
+Add these in **GitHub → Settings → Secrets and variables → Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `HF_TOKEN` | Hugging Face access token |
+| `HF_REPO_ID` | HF repo ID (`user/repo`) |
+| `RENDER_DEPLOY_HOOK_URL` | Render deploy hook (backend service → Settings → Deploy Hook) |
+| `RENDER_BACKEND_URL` | Backend public URL |
+| `RETRAIN_API_KEY` | Same value as the backend env var |
+
+The workflow (`.github/workflows/retrain.yml`) runs **every Monday at 06:00 UTC** and can be triggered manually. It:
+1. Sets the retraining banner flag → users see the amber banner
+2. Downloads fresh data from football-data.co.uk (current season updated weekly)
+3. Retrains the model across all 8 seasons
+4. Uploads model artefacts + updated Parquet datasets to Hugging Face
+5. Triggers a Render redeploy → backend restarts and loads everything from HF
+6. Clears the retraining banner flag
+
+---
+
+### Deployment overview
+
+```
+GitHub Actions (every Monday 06:00 UTC)
+  └─► sets retraining=true (Supabase app_settings)
+  └─► downloads fresh data from football-data.co.uk
+  └─► retrains model (8 seasons × 6 leagues)
+  └─► uploads model + datasets/ Parquet to Hugging Face
+  └─► triggers Render deploy hook
+  └─► sets retraining=false
+
+Render (Backend)
+  └─► Docker image built from Dockerfile
+  └─► on startup: downloads model + datasets/ from Hugging Face → /tmp/hf_models
+  └─► FootballDataLoader reads from /tmp/hf_models/datasets/*.parquet
+  └─► reads SUPABASE_URL / SUPABASE_SERVICE_KEY
+  └─► uses ENCRYPTION_KEY to decrypt per-user Gemini keys
+
+Render (Frontend)
+  └─► static build from src/frontend
+  └─► calls backend via VITE_API_URL
+  └─► Supabase auth via VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+
+Supabase
+  └─► user_profiles  (approved, is_admin)
+  └─► user_api_keys  (encrypted Gemini keys)
+  └─► app_settings   (retraining flag)
+```
+
+---
+
+## Local Development
+
+### Prerequisites
+- Python ≥ 3.12 with [uv](https://docs.astral.sh/uv/)
+- Node.js ≥ 18
+
+### Backend
+
+```bash
+uv sync
+uv run uvicorn src.backend.main:app --reload --port 8000
+```
+
+Create a `.env` file (or export directly):
+
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-role-key
+ENCRYPTION_KEY=your-fernet-key
+# Optional — skips HF download if absent; data is fetched from football-data.co.uk instead
+HF_TOKEN=hf_...
+HF_REPO_ID=username/repo
+RETRAIN_API_KEY=any-local-secret
+```
+
+### Frontend
+
+```bash
+cd src/frontend
+npm install
+npm run dev
+```
+
+Create `src/frontend/.env.local`:
+
+```
+VITE_API_URL=http://localhost:8000
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### ML Pipeline (standalone)
+
+```bash
+# Train the model (downloads data, writes seasons_trained to training_results.json)
+uv run python scripts/train_model.py
+
+# Upload model + Parquet datasets to Hugging Face
+HF_TOKEN=hf_... HF_REPO_ID=user/repo uv run python scripts/upload_to_hf.py
+
+# Value bets pipeline
+uv run python scripts/find_value_bets.py --league "Liga Portugal"
+
+# Single match prediction
+uv run python scripts/predict_match.py --home "Benfica" --away "Porto" --league P1
+```
+
+### Tests
+
+```bash
+# Full suite
+uv run pytest tests/
+
+# With coverage
+uv run pytest tests/ --cov=src --cov-report=term-missing
+```
+
+### Code Quality
+
+```bash
+uv run black src/
+uv run ruff check src/
+uv run mypy src/
+```

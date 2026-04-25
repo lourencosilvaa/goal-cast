@@ -1,0 +1,95 @@
+# Deploy backend to Render on every push to main.
+#
+# Flow: build Docker image → push to ghcr.io → trigger Render deploy hook.
+#
+# ── One-time Render setup ──────────────────────────────────────────────────────
+# 1. Run this workflow manually first (Actions → Deploy → Run workflow)
+# 2. Create a Web Service on Render:
+#      Image URL: ghcr.io/<github-username>/football-prediction-agent:latest
+#      Registry credentials: ghcr.io + GitHub PAT with read:packages scope
+#      Health check path: /api/leagues
+#      Env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, ENCRYPTION_KEY,
+#                HF_TOKEN, HF_REPO_ID, HF_LOCAL_DIR=/tmp/hf_models,
+#                RETRAIN_API_KEY
+# 3. Copy the Deploy Hook URL → add as GitHub secret RENDER_DEPLOY_HOOK_URL
+#
+# ── Frontend (Static Site) ─────────────────────────────────────────────────────
+# Create a Static Site on Render (connect repo or deploy manually):
+#      Build command: cd src/frontend && npm install && npm run build
+#      Publish directory: src/frontend/dist
+#      Rewrite rule: /* → /index.html
+#      Env vars: VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+# ───────────────────────────────────────────────────────────────────────────────
+
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/backend/**"
+      - "src/models/**"
+      - "src/analysis/**"
+      - "src/scrapers/**"
+      - "src/evaluation/**"
+      - "config/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build → Push → Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger Render redeploy
+        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          echo "Render deploy hook response: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
+            echo "::warning::Render deploy hook returned $HTTP_STATUS"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`$REGISTRY/$IMAGE_NAME:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY

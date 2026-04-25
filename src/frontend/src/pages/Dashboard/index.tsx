@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, Loader2, Trophy, Calendar } from 'lucide-react';
+import { RefreshCw, Loader2, Trophy, Calendar, Download } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
 import { MatchCard } from '@/components/match/MatchCard';
@@ -9,6 +9,7 @@ import {
   fetchLeagues,
   fetchLeaguePredictions,
   refreshPredictions,
+  downloadExport,
 } from '@/lib/api';
 import type { League, LeaguePredictions } from '@/types';
 
@@ -52,6 +53,7 @@ export function Dashboard() {
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingPredictions, setLoadingPredictions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Track which league+date combos have been fetched
@@ -116,6 +118,15 @@ export function Dashboard() {
     fetchedRef.current.clear();
   }, []);
 
+  async function handleExport(format: 'csv' | 'excel') {
+    setExporting(true);
+    try {
+      await downloadExport(format, selectedDate);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function handleRefresh() {
     if (!activeLeague) return;
     setRefreshing(true);
@@ -178,6 +189,24 @@ export function Dashboard() {
           <NeonButton
             variant="secondary"
             size="sm"
+            loading={exporting}
+            onClick={() => handleExport('csv')}
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5 inline" />
+            CSV
+          </NeonButton>
+          <NeonButton
+            variant="secondary"
+            size="sm"
+            loading={exporting}
+            onClick={() => handleExport('excel')}
+          >
+            <Download className="w-3.5 h-3.5 mr-1.5 inline" />
+            Excel
+          </NeonButton>
+          <NeonButton
+            variant="secondary"
+            size="sm"
             loading={refreshing}
             onClick={handleRefresh}
           >
@@ -221,7 +250,7 @@ export function Dashboard() {
       {error && (
         <GlassCard className="text-center py-10">
           <p className="text-red-400">{error}</p>
-          <NeonButton variant="secondary" size="sm" onClick={load} className="mt-4">
+          <NeonButton variant="secondary" size="sm" onClick={() => window.location.reload()} className="mt-4">
             Tentar novamente
           </NeonButton>
         </GlassCard>

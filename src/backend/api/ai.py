@@ -1,14 +1,19 @@
 """AI analysis endpoint — uses Gemini to generate personalized match analysis."""
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 from google.genai.errors import APIError, ClientError, ServerError
 from pydantic import BaseModel
+
+from src.backend.api.keys import get_api_key_service
+from src.backend.core.auth import get_current_user
+from src.backend.services.api_key_service import ApiKeyService
 
 router = APIRouter(prefix="/api", tags=["ai"])
 
 
 class AIAnalysisRequest(BaseModel):
-    gemini_api_key: str
     match_data: dict
     language: str = "pt-PT"
     model: str = "gemini-2.5-flash"
@@ -19,15 +24,23 @@ class AIAnalysisResponse(BaseModel):
 
 
 @router.post("/ai/analyze", response_model=AIAnalysisResponse)
-async def analyze_match(body: AIAnalysisRequest) -> AIAnalysisResponse:
-    """Generate AI-powered match analysis using Gemini."""
-    if not body.gemini_api_key:
-        raise HTTPException(status_code=400, detail="Gemini API key is required")
+async def analyze_match(
+    body: AIAnalysisRequest,
+    user_id: Annotated[str, Depends(get_current_user)],
+    service: Annotated[ApiKeyService, Depends(get_api_key_service)],
+) -> AIAnalysisResponse:
+    """Generate AI-powered match analysis using the user's stored Gemini key."""
+    gemini_api_key = service.get_user_key(user_id=user_id)
+    if not gemini_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API key not configured. Add it in Settings.",
+        )
 
     try:
         from google import genai
 
-        client = genai.Client(api_key=body.gemini_api_key)
+        client = genai.Client(api_key=gemini_api_key)
 
         prompt = _build_prompt(body.match_data, body.language)
 
