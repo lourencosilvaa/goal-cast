@@ -29,13 +29,15 @@ jobs:
       BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
       RETRAIN_API_KEY: ${{ secrets.RETRAIN_API_KEY }}
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
 
     steps:
       # ── 1. Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set image name (lowercase)
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       # ── 2. Set up Python + uv ──────────────────────────────────────────────
       - name: Install uv
