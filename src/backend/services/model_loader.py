@@ -3,8 +3,6 @@
 from pathlib import Path
 from typing import Optional
 
-from huggingface_hub import snapshot_download
-
 
 class ModelLoader:
     def __init__(self, repo_id: str, hf_token: str, local_dir: Path) -> None:
@@ -14,6 +12,8 @@ class ModelLoader:
         self._downloaded_path: Optional[Path] = None
 
     def download(self) -> Path:
+        from huggingface_hub import snapshot_download
+
         try:
             path = snapshot_download(
                 repo_id=self.repo_id,

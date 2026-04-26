@@ -1,7 +1,6 @@
 import time
 
-from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup, Tag
 
 from src.scrapers.base_scraper import BaseScraper, ScrapedOdds
 
@@ -30,6 +29,8 @@ class BetclicScraper(BaseScraper):
         matches: list[ScrapedOdds] = []
 
         try:
+            from playwright.sync_api import sync_playwright
+
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 context = browser.new_context(
@@ -64,6 +65,8 @@ class BetclicScraper(BaseScraper):
     def scrape_match(self, match_url: str) -> ScrapedOdds | None:
         """Scrape odds for a specific match page."""
         try:
+            from playwright.sync_api import sync_playwright
+
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 context = browser.new_context(user_agent=self.user_agent)
@@ -84,7 +87,7 @@ class BetclicScraper(BaseScraper):
             return None
 
     def _parse_event_card(
-        self, card: BeautifulSoup, league_url: str  # type: ignore[override]
+        self, card: Tag, league_url: str  # type: ignore[override]
     ) -> ScrapedOdds | None:
         """Parse a single event card from the league page."""
         try:

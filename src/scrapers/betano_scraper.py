@@ -1,7 +1,6 @@
 import time
 
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
 
 from src.scrapers.base_scraper import BaseScraper, ScrapedOdds
 
@@ -30,6 +29,8 @@ class BetanoScraper(BaseScraper):
         matches: list[ScrapedOdds] = []
 
         try:
+            from playwright.sync_api import sync_playwright
+
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 context = browser.new_context(
@@ -66,6 +67,8 @@ class BetanoScraper(BaseScraper):
     def scrape_match(self, match_url: str) -> ScrapedOdds | None:
         """Scrape odds for a specific match page."""
         try:
+            from playwright.sync_api import sync_playwright
+
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 context = browser.new_context(user_agent=self.user_agent)

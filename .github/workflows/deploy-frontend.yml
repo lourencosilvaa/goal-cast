@@ -71,11 +71,13 @@ jobs:
       - name: Trigger Render redeploy
         if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
         run: |
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST "$RENDER_DEPLOY_HOOK_URL")
-          echo "Render deploy hook response: $HTTP_STATUS"
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$RENDER_DEPLOY_HOOK_URL")
+          HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -1)
+          echo "Render deploy hook status: $HTTP_STATUS"
+          echo "Render deploy hook body: $HTTP_BODY"
           if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
-            echo "::error::Render deploy hook returned $HTTP_STATUS"
+            echo "::error::Render deploy hook returned $HTTP_STATUS — $HTTP_BODY"
             exit 1
           fi
 
