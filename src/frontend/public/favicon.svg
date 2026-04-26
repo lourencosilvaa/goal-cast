@@ -1,11 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
-  <!-- Football -->
-  <circle cx="18" cy="30" r="12" fill="#10b981" stroke="#059669" stroke-width="1.5"/>
-  <path d="M18 18.5 L13.5 22.5 L15 28.5 L21 28.5 L22.5 22.5 Z" fill="#065f46" opacity="0.6"/>
-  <path d="M18 18.5 L22.5 22.5 M18 18.5 L13.5 22.5 M13.5 22.5 L15 28.5 M15 28.5 L21 28.5 M21 28.5 L22.5 22.5" stroke="#065f46" stroke-width="0.8" opacity="0.5"/>
-  <path d="M10 21 L7.5 27 M26 21 L28.5 27 M12 35 L18 38 L24 35" stroke="#065f46" stroke-width="0.8" opacity="0.4"/>
-  <!-- Broadcast waves -->
-  <path d="M30 16 Q34 12 38 16" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-  <path d="M28 10 Q35 4 42 10" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
-  <path d="M26 4 Q36 -4 46 4" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/>
+  <!-- Background circle -->
+  <circle cx="24" cy="24" r="22" fill="#059669"/>
+  <!-- Broadcast/signal waves -->
+  <path d="M24 30 L24 30" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="24" cy="30" r="2" fill="#fff"/>
+  <path d="M17 25 C17 20 24 14 24 14 C24 14 31 20 31 25" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M12 22 C12 14 24 6 24 6 C24 6 36 14 36 22" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.7"/>
+  <path d="M7 20 C7 10 24 0 24 0 C24 0 41 10 41 20" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/>
+  <!-- Football at base -->
+  <circle cx="24" cy="38" r="5" fill="#fff" opacity="0.9"/>
+  <path d="M24 33.5 L22 35.5 L22.8 38 L25.2 38 L26 35.5 Z" fill="#059669" opacity="0.6"/>
 </svg>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, Loader2, Trophy, Calendar, Download } from 'lucide-react';
+import { RefreshCw, Loader2, Calendar, Download, CircleSlash } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
 import { MatchCard } from '@/components/match/MatchCard';
@@ -230,7 +230,9 @@ export function Dashboard() {
             </div>
           ) : currentLeague ? (
             <GlassCard className="text-center py-10">
-              <Trophy className="w-10 h-10 text-white/20 mx-auto mb-3" />
+              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
+                <CircleSlash className="w-6 h-6 text-white/20" />
+              </div>
               <p className="text-white/40">
                 Sem jogos agendados para {currentLeague.league_name} em{' '}
                 {selectedDate === todayStr() ? 'hoje' : formatDateLabel(selectedDate)}.
@@ -242,7 +244,9 @@ export function Dashboard() {
 
       {!loadingLeagues && !loading && !displayError && allLeagues.length === 0 && (
         <GlassCard className="text-center py-10">
-          <Trophy className="w-10 h-10 text-white/20 mx-auto mb-3" />
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
+            <CircleSlash className="w-6 h-6 text-white/20" />
+          </div>
           <p className="text-white/40">
             Sem jogos agendados para{' '}
             {selectedDate === todayStr() ? 'hoje' : formatDateLabel(selectedDate)}.
