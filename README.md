@@ -15,27 +15,33 @@ A full-stack web application that combines a **ML ensemble model** with **AI-pow
                          │ HTTPS
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  BACKEND (FastAPI)                        │
+│              BACKEND (FastAPI — lightweight)              │
 │  /api/predictions │ /api/leagues │ /api/ai/analyze       │
 │  /api/admin │ /api/keys │ /api/export │ /api/status      │
-└──────────┬──────────────────────┬───────────────────────┘
-           │                      │
-           ▼                      ▼
-┌──────────────────┐   ┌──────────────────────────────────┐
-│  Hugging Face    │   │            Supabase               │
-│  Private Repo    │   │  Auth │ user_profiles             │
-│  ML model files  │   │  user_api_keys │ app_settings     │
-│  + datasets/     │   └──────────────────────────────────┘
-│  (Parquet files) │
-└──────────────────┘
-           │
-           ▼
+│  Reads pre-computed predictions from Supabase (~50 MB)   │
+└──────────────────────────┬──────────────────────────────┘
+                           │
+                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│               ML PIPELINE (5 layers)                     │
-│  HuggingFace datasets/ (8 seasons × 6 leagues)          │
-│  Feature Engineering → Ensemble Model → Value Detection  │
+│                       Supabase                           │
+│  Auth │ user_profiles │ user_api_keys │ app_settings     │
+│  predictions (JSONB — pre-computed by inference job)      │
+└──────────────────────────▲──────────────────────────────┘
+                           │
+┌──────────────────────────┴──────────────────────────────┐
+│            GitHub Actions (daily + on retrain)            │
+│  run_inference.py: loads model from HF, runs ML pipeline │
+│  per league, uploads results to Supabase predictions     │
+└──────────────────────────▲──────────────────────────────┘
+                           │
+┌──────────────────────────┴──────────────────────────────┐
+│                    Hugging Face Hub                       │
+│  Private repo: ML model (.joblib) + datasets (.parquet)  │
+│  Updated weekly by retrain.yml workflow                   │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Key design decision:** ML inference runs **offline** in GitHub Actions (daily at 06:30 UTC). The backend never loads the ML model or historical data — it reads pre-computed predictions from Supabase. This keeps the backend under 50 MB of memory, well within Render free-tier limits (512 MB).
 
 ---
 
@@ -100,7 +106,7 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 - Daily match predictions for all 6 leagues
 - Confidence levels and blended probabilities
 - AI analysis per match (Google Gemini)
-- Export predictions to CSV or Excel
+- Export predictions to CSV
 
 ### Value Bets
 - Auto-detected value opportunities (edge ≥ 3%)
@@ -132,54 +138,58 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 football-prediction-agent/
 ├── .github/
 │   └── workflows/
-│       ├── retrain.yml        # Weekly model retraining + HF upload + Render redeploy
-│       └── render.yaml        # Render deployment config (backend + frontend)
+│       ├── retrain.yml            # Weekly model retraining + HF upload
+│       ├── run-inference.yml      # Daily inference → Supabase upload
+│       ├── deploy-backend.yml     # Build Docker image → Render redeploy
+│       └── deploy-frontend.yml    # Build frontend → Render static site
 ├── config/
-│   ├── config.yaml            # Centralized configuration (no hardcoded values)
-│   └── config_loader.py       # Pydantic config loader (HuggingFaceConfig, DataConfig, …)
+│   ├── config.yaml                # Centralized configuration
+│   └── config_loader.py           # Pydantic config loader
 ├── src/
-│   ├── backend/
+│   ├── backend/                   # Lightweight FastAPI (no ML deps)
 │   │   ├── api/
-│   │   │   ├── admin.py       # User management (list, create, approve/revoke)
-│   │   │   ├── ai.py          # Gemini match analysis
-│   │   │   ├── evaluation.py  # Model evaluation stats
-│   │   │   ├── exports.py     # CSV / Excel export
-│   │   │   ├── keys.py        # Per-user Gemini key CRUD
-│   │   │   ├── leagues.py     # Available leagues
-│   │   │   ├── predictions.py # Match predictions
-│   │   │   ├── profile.py     # User profile + self-registration
-│   │   │   └── status.py      # Retraining status flag
+│   │   │   ├── admin.py           # User management (list, create, approve/revoke)
+│   │   │   ├── ai.py              # Gemini match analysis
+│   │   │   ├── evaluation.py      # Model evaluation stats
+│   │   │   ├── exports.py         # CSV export (reads from Supabase)
+│   │   │   ├── keys.py            # Per-user Gemini key CRUD
+│   │   │   ├── leagues.py         # Available leagues
+│   │   │   ├── predictions.py     # Match predictions (reads from Supabase)
+│   │   │   ├── profile.py         # User profile + self-registration
+│   │   │   └── status.py          # Retraining status flag
 │   │   ├── core/
-│   │   │   ├── auth.py              # JWT validation via Supabase
-│   │   │   ├── encryption.py        # Fernet symmetric encryption
-│   │   │   └── supabase_client.py   # Supabase service-role client singleton
+│   │   │   ├── auth.py            # JWT validation via Supabase
+│   │   │   ├── encryption.py      # Fernet symmetric encryption
+│   │   │   └── supabase_client.py # Supabase service-role client singleton
 │   │   ├── services/
 │   │   │   ├── api_key_service.py       # Encrypted key storage
 │   │   │   ├── app_settings_service.py  # app_settings table CRUD
-│   │   │   ├── model_loader.py          # HuggingFace model + dataset download
-│   │   │   ├── prediction_service.py    # Core prediction logic
+│   │   │   ├── model_loader.py          # HuggingFace download (used by inference script)
+│   │   │   ├── prediction_service.py    # Reads predictions from Supabase
 │   │   │   └── user_service.py          # user_profiles table CRUD
-│   │   └── main.py            # FastAPI app with lifespan (model + datasets preload on startup)
-│   ├── frontend/              # React + TypeScript + Vite
+│   │   └── main.py                # FastAPI app (lightweight startup, no ML)
+│   ├── frontend/                  # React + TypeScript + Vite
 │   │   └── src/
-│   │       ├── components/    # GlassCard, NeonButton, RetrainingBanner, layout, …
-│   │       ├── contexts/      # AuthContext (Supabase session + profile)
-│   │       ├── lib/           # api.ts (all backend calls), supabase.ts
-│   │       ├── pages/         # Dashboard, ValueBets, Settings, Admin, Login
-│   │       └── App.tsx        # Routes (ProtectedRoute, AdminRoute)
-│   ├── models/                # ML pipeline (data_loader, feature_engineer, trainer, predictor)
-│   ├── scrapers/              # Odds scrapers (Betclic, Betano, Solverde)
-│   └── analysis/              # Value detection, KL divergence, Poisson match stats
+│   │       ├── components/        # GlassCard, NeonButton, RetrainingBanner, …
+│   │       ├── contexts/          # AuthContext (Supabase session + profile)
+│   │       ├── lib/               # api.ts (all backend calls), supabase.ts
+│   │       ├── pages/             # Dashboard, ValueBets, Settings, Admin, Login
+│   │       └── App.tsx            # Routes (ProtectedRoute, AdminRoute)
+│   ├── models/                    # ML pipeline (data_loader, feature_engineer, trainer, predictor)
+│   ├── scrapers/                  # Fixtures fetcher + odds scrapers
+│   └── analysis/                  # Value detection, KL divergence, Poisson match stats
 ├── scripts/
-│   ├── train_model.py         # Train ML ensemble locally (writes seasons_trained to results)
-│   ├── upload_to_hf.py        # Upload model artefacts + per-league Parquet datasets to HF
-│   ├── find_value_bets.py     # Full prediction + value pipeline
-│   └── predict_match.py       # Predict a single match
-├── tests/                     # Test suite mirroring src/ (100% coverage on data_loader)
-├── datasets/cache/            # Local CSV cache from football-data.co.uk (ephemeral on Render)
-├── output/                    # Reports, trained models, exports
-├── Dockerfile                 # Backend Docker image (Python 3.12-slim + uv)
-└── pyproject.toml             # Python deps managed by uv
+│   ├── train_model.py             # Train ML ensemble (writes seasons_trained)
+│   ├── upload_to_hf.py            # Upload model + Parquet datasets to HF
+│   ├── run_inference.py           # Offline inference → Supabase upload
+│   ├── find_value_bets.py         # Full prediction + value pipeline (local)
+│   └── predict_match.py           # Predict a single match (local)
+├── supabase/migrations/           # SQL migrations for Supabase tables
+├── tests/                         # Test suite mirroring src/
+├── datasets/cache/                # Local CSV cache (ephemeral on Render)
+├── output/                        # Reports, trained models, exports
+├── Dockerfile                     # Slim backend image (no ML deps)
+└── pyproject.toml                 # Python deps managed by uv
 ```
 
 ### HuggingFace Repo Layout
@@ -265,6 +275,20 @@ SELECT id, email, true, true
 FROM auth.users
 WHERE email = 'your-email@example.com'
 ON CONFLICT (user_id) DO UPDATE SET approved = true, is_admin = true;
+
+-- Pre-computed predictions (written by inference job, read by backend)
+CREATE TABLE IF NOT EXISTS public.predictions (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  league_code TEXT        NOT NULL,
+  match_date  TEXT        NOT NULL,
+  payload     JSONB       NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (league_code, match_date)
+);
+CREATE INDEX IF NOT EXISTS idx_predictions_date ON public.predictions (match_date);
+ALTER TABLE public.predictions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_full_access" ON public.predictions
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
 ```
 
 From **Supabase → Settings → API**, collect:
@@ -307,13 +331,11 @@ Create a **Web Service** on Render with runtime **Docker** pointing to the repo 
 | `SUPABASE_URL` | Supabase project URL | Supabase → Settings → API |
 | `SUPABASE_SERVICE_KEY` | Service role secret | Supabase → Settings → API |
 | `ENCRYPTION_KEY` | Fernet key for encrypting Gemini keys at rest | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `HF_TOKEN` | Hugging Face access token | HF → Settings → Tokens |
-| `HF_REPO_ID` | HF repo ID (`user/repo`) | Your HF repo page |
 | `RETRAIN_API_KEY` | Secret for the retraining webhook | `openssl rand -hex 32` |
 
 Set the **Health check path** to `/api/leagues`.
 
-On startup the backend downloads the entire HF repo (model + `datasets/` Parquet files) to `/tmp/hf_models`, then serves predictions directly from the Parquet files — no local CSV cache needed.
+The backend is lightweight — it does **not** load any ML model or historical data. It reads pre-computed predictions from the Supabase `predictions` table and serves them via the API. Startup is near-instant and memory usage stays under 50 MB.
 
 After the service is created, copy its public URL — you'll need it for the frontend and GitHub Actions.
 
@@ -342,36 +364,46 @@ Add these in **GitHub → Settings → Secrets and variables → Actions**:
 |--------|-------------|
 | `HF_TOKEN` | Hugging Face access token |
 | `HF_REPO_ID` | HF repo ID (`user/repo`) |
+| `SUPABASE_URL` | Supabase project URL (for inference job) |
+| `SUPABASE_SERVICE_KEY` | Service role secret (for inference job) |
 | `RENDER_DEPLOY_HOOK_URL` | Render deploy hook (backend service → Settings → Deploy Hook) |
 | `RENDER_BACKEND_URL` | Backend public URL |
 | `RETRAIN_API_KEY` | Same value as the backend env var |
 
-The workflow (`.github/workflows/retrain.yml`) runs **every Monday at 06:00 UTC** and can be triggered manually. It:
+#### Retrain workflow (`.github/workflows/retrain.yml`)
+Runs **every Monday at 06:00 UTC** (or manually):
 1. Sets the retraining banner flag → users see the amber banner
-2. Downloads fresh data from football-data.co.uk (current season updated weekly)
+2. Downloads fresh data from football-data.co.uk
 3. Retrains the model across all 8 seasons
 4. Uploads model artefacts + updated Parquet datasets to Hugging Face
-5. Triggers a Render redeploy → backend restarts and loads everything from HF
+5. Triggers the inference workflow (see below)
 6. Clears the retraining banner flag
+
+#### Inference workflow (`.github/workflows/run-inference.yml`)
+Runs **daily at 06:30 UTC**, after retraining completes, or manually:
+1. Downloads ML model from Hugging Face
+2. Fetches today's fixtures from football-data.co.uk
+3. Runs the full ML pipeline (feature engineering → ELO → ensemble prediction → Poisson stats → value detection)
+4. Uploads pre-computed predictions to the Supabase `predictions` table
 
 ---
 
 ### Deployment overview
 
 ```
-GitHub Actions (every Monday 06:00 UTC)
-  └─► sets retraining=true (Supabase app_settings)
-  └─► downloads fresh data from football-data.co.uk
-  └─► retrains model (8 seasons × 6 leagues)
-  └─► uploads model + datasets/ Parquet to Hugging Face
-  └─► triggers Render deploy hook
-  └─► sets retraining=false
+GitHub Actions — Retrain (every Monday 06:00 UTC)
+  └─► retrains model → uploads to Hugging Face
+  └─► triggers inference workflow
 
-Render (Backend)
-  └─► Docker image built from Dockerfile
-  └─► on startup: downloads model + datasets/ from Hugging Face → /tmp/hf_models
-  └─► FootballDataLoader reads from /tmp/hf_models/datasets/*.parquet
-  └─► reads SUPABASE_URL / SUPABASE_SERVICE_KEY
+GitHub Actions — Inference (daily 06:30 UTC + after retrain)
+  └─► downloads model from Hugging Face
+  └─► runs ML pipeline for all leagues
+  └─► uploads predictions JSONB to Supabase predictions table
+
+Render (Backend — lightweight, ~50 MB)
+  └─► Docker image with backend deps only (no pandas/sklearn/xgboost)
+  └─► reads predictions from Supabase (no ML at runtime)
+  └─► serves auth, admin, AI analysis, exports, API keys
   └─► uses ENCRYPTION_KEY to decrypt per-user Gemini keys
 
 Render (Frontend)
@@ -380,6 +412,7 @@ Render (Frontend)
   └─► Supabase auth via VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
 
 Supabase
+  └─► predictions   (pre-computed ML predictions per league+date)
   └─► user_profiles  (approved, is_admin)
   └─► user_api_keys  (encrypted Gemini keys)
   └─► app_settings   (retraining flag)
@@ -437,7 +470,11 @@ uv run python scripts/train_model.py
 # Upload model + Parquet datasets to Hugging Face
 HF_TOKEN=hf_... HF_REPO_ID=user/repo uv run python scripts/upload_to_hf.py
 
-# Value bets pipeline
+# Run inference and upload predictions to Supabase
+SUPABASE_URL=... SUPABASE_SERVICE_KEY=... HF_TOKEN=... HF_REPO_ID=... \
+  uv run python scripts/run_inference.py
+
+# Value bets pipeline (local HTML report)
 uv run python scripts/find_value_bets.py --league "Liga Portugal"
 
 # Single match prediction
