@@ -24,6 +24,8 @@ class ApiKeyService:
             .maybe_single()
             .execute()
         )
+        if response is None:
+            return None
         data: Optional[dict] = response.data  # type: ignore[union-attr,assignment]
         if data is None:
             return None

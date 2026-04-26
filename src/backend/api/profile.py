@@ -1,6 +1,6 @@
 """User profile endpoints — own profile and self-registration."""
 
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -24,7 +24,8 @@ class ProfileResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    token: str
+    token: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 @router.get("/users/me", response_model=ProfileResponse)
@@ -47,15 +48,30 @@ def register_user(
     svc: Annotated[UserService, Depends(get_user_service)],
 ) -> dict:
     client = get_supabase_client()
-    try:
-        response = client.auth.get_user(body.token)
-        user = response.user
-        if user is None:
-            raise HTTPException(status_code=401, detail="Invalid token.")
-    except Exception as exc:
-        raise HTTPException(
-            status_code=401, detail="Invalid or expired token."
-        ) from exc
+
+    if body.token:
+        try:
+            response = client.auth.get_user(body.token)
+            user = response.user
+            if user is None:
+                raise HTTPException(status_code=401, detail="Invalid token.")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=401, detail="Invalid or expired token."
+            ) from exc
+    elif body.user_id:
+        # Email confirmation pending — verify the user actually exists via service role
+        try:
+            response = client.auth.admin.get_user_by_id(body.user_id)
+            user = response.user
+            if user is None:
+                raise HTTPException(status_code=401, detail="User not found.")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=401, detail="Could not verify user."
+            ) from exc
+    else:
+        raise HTTPException(status_code=400, detail="Provide token or user_id.")
 
     try:
         svc.create_profile(user_id=user.id, email=user.email or "", approved=False)

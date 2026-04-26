@@ -134,16 +134,16 @@ export async function registerUser(email: string, password: string): Promise<voi
   if (error) throw new Error(error.message);
 
   const token = data.session?.access_token;
-  if (!token) {
-    // Email confirmation required — still inform backend if we have a user id
-    // but we can't create profile without a token; the user must confirm first.
-    return;
-  }
+  const userId = data.user?.id;
+
+  // Build payload: use token when session is immediate, user_id when email confirmation is pending
+  const payload = token ? { token } : userId ? { user_id: userId } : null;
+  if (!payload) return;
 
   const res = await fetch(`${BASE}/api/users/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Registration failed' }));
