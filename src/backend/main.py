@@ -65,16 +65,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.config = config
     print("ML model loaded, backend ready.")
 
-    # Warm the prediction cache in parallel — one thread per league —
-    # so all leagues are ready as fast as possible without blocking startup.
+    # Warm the prediction cache sequentially to keep peak memory low.
     async def _warm_cache() -> None:
         league_codes = list(service.config.data.leagues.keys())
-        tasks = [
-            asyncio.to_thread(service.get_league_predictions, code)
-            for code in league_codes
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        failed = [league_codes[i] for i, r in enumerate(results) if isinstance(r, Exception)]
+        failed = []
+        for code in league_codes:
+            try:
+                await asyncio.to_thread(service.get_league_predictions, code)
+            except Exception:
+                failed.append(code)
         if failed:
             print(f"Cache warm-up failed for: {', '.join(failed)} (non-fatal)")
         else:

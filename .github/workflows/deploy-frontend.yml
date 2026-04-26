@@ -71,11 +71,13 @@ jobs:
       - name: Trigger Render redeploy
         if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
         run: |
+          IMAGE_URL="${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST "$RENDER_DEPLOY_HOOK_URL")
-          echo "Render deploy hook response: $HTTP_STATUS"
+            -X POST "${RENDER_DEPLOY_HOOK_URL}&imgURL=${IMAGE_URL}")
+          echo "Render deploy hook response: $HTTP_STATUS (image: $IMAGE_URL)"
           if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
-            echo "::warning::Render deploy hook returned $HTTP_STATUS"
+            echo "::error::Render deploy hook returned $HTTP_STATUS"
+            exit 1
           fi
 
       - name: Summary

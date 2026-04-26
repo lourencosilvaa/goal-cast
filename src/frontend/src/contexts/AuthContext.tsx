@@ -14,6 +14,7 @@ interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
+  backendDown: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -21,16 +22,17 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function fetchProfile(token: string): Promise<UserProfile | null> {
+async function fetchProfile(token: string): Promise<{ profile: UserProfile | null; backendDown: boolean }> {
   const { config } = await import('@/config');
   try {
     const res = await fetch(`${config.apiUrl}/api/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return null;
-    return res.json();
+    if (res.status >= 500) return { profile: null, backendDown: true };
+    if (!res.ok) return { profile: null, backendDown: false };
+    return { profile: await res.json(), backendDown: false };
   } catch {
-    return null;
+    return { profile: null, backendDown: true };
   }
 }
 
@@ -38,11 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [backendDown, setBackendDown] = useState(false);
 
   async function loadProfile(s: Session | null) {
-    if (!s) { setProfile(null); return; }
-    const p = await fetchProfile(s.access_token);
+    if (!s) { setProfile(null); setBackendDown(false); return; }
+    const { profile: p, backendDown: down } = await fetchProfile(s.access_token);
     setProfile(p);
+    setBackendDown(down);
   }
 
   useEffect(() => {
@@ -81,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         profile,
         loading,
+        backendDown,
         signIn,
         signOut,
         refreshProfile,
