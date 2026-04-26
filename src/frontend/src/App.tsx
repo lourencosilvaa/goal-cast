@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { PredictionsProvider } from '@/contexts/PredictionsContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminRoute } from '@/components/AdminRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -17,7 +18,9 @@ function App() {
         <Route
           element={
             <ProtectedRoute>
-              <AppLayout />
+              <PredictionsProvider>
+                <AppLayout />
+              </PredictionsProvider>
             </ProtectedRoute>
           }
         >

@@ -1,17 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { RefreshCw, Loader2, Trophy, Calendar, Download } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
 import { MatchCard } from '@/components/match/MatchCard';
-import {
-  fetchAvailableDates,
-  fetchLeagues,
-  fetchLeaguePredictions,
-  refreshPredictions,
-  downloadExport,
-} from '@/lib/api';
-import type { League, LeaguePredictions } from '@/types';
+import { fetchAvailableDates, fetchLeagues, downloadExport } from '@/lib/api';
+import { usePredictions } from '@/contexts/PredictionsContext';
+import type { League } from '@/types';
 
 const LEAGUE_ICONS: Record<string, string> = {
   E0: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
@@ -27,14 +22,12 @@ const LEAGUE_ICONS: Record<string, string> = {
   CDR: '🥤',
 };
 
-/** Format DD/MM/YYYY → readable label like "19 Abr" */
 function formatDateLabel(d: string): string {
   const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const [day, month] = d.split('/');
   return `${parseInt(day)} ${months[parseInt(month) - 1]}`;
 }
 
-/** Today in DD/MM/YYYY */
 function todayStr(): string {
   const d = new Date();
   const dd = String(d.getDate()).padStart(2, '0');
@@ -46,77 +39,55 @@ export function Dashboard() {
   const [leagueList, setLeagueList] = useState<League[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
-  const [leagueData, setLeagueData] = useState<
-    Record<string, LeaguePredictions>
-  >({});
   const [activeLeague, setActiveLeague] = useState<string | null>(null);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
-  const [loadingPredictions, setLoadingPredictions] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
 
-  // Track which league+date combos have been fetched
-  const fetchedRef = useRef<Set<string>>(new Set());
+  const { data: allLeagues, loading, error, invalidate } = usePredictions(selectedDate);
 
-  // Load leagues + available dates (lightweight, once)
+  // Derive per-league map from shared context data
+  const leagueDataMap = Object.fromEntries(allLeagues.map((l) => [l.league_code, l]));
+
+  // Load leagues list + available dates once
   useEffect(() => {
     (async () => {
       try {
-        const [list, dates] = await Promise.all([
-          fetchLeagues(),
-          fetchAvailableDates(),
-        ]);
+        const [list, dates] = await Promise.all([fetchLeagues(), fetchAvailableDates()]);
         setLeagueList(list);
         setAvailableDates(dates);
         if (list.length > 0) setActiveLeague(list[0].code);
-        // If today isn't in the available dates, select the first one
         if (dates.length > 0 && !dates.includes(todayStr())) {
           setSelectedDate(dates[0]);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load leagues');
+        setInitError(e instanceof Error ? e.message : 'Failed to load leagues');
       } finally {
         setLoadingLeagues(false);
       }
     })();
   }, []);
 
-  // Load predictions when the active league or date changes
+  // When context data arrives, default to first league that has matches
   useEffect(() => {
-    if (!activeLeague) return;
-    const cacheKey = `${activeLeague}:${selectedDate}`;
-    if (fetchedRef.current.has(cacheKey)) return;
-    fetchedRef.current.add(cacheKey);
-    let cancelled = false;
-    (async () => {
-      setLoadingPredictions(true);
-      setError(null);
-      try {
-        const data = await fetchLeaguePredictions(activeLeague, selectedDate);
-        if (!cancelled) {
-          setLeagueData((prev) => ({ ...prev, [activeLeague]: data }));
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load');
-          fetchedRef.current.delete(cacheKey);
-        }
-      } finally {
-        if (!cancelled) setLoadingPredictions(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeLeague, selectedDate]);
+    if (!activeLeague && allLeagues.length > 0) {
+      setActiveLeague(allLeagues[0].league_code);
+    }
+  }, [allLeagues, activeLeague]);
 
   const handleDateChange = useCallback((date: string) => {
     setSelectedDate(date);
-    // Clear both local state and fetch guard so leagues re-fetch for the new date
-    setLeagueData({});
-    fetchedRef.current.clear();
   }, []);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await invalidate();
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function handleExport(format: 'csv' | 'excel') {
     setExporting(true);
@@ -127,34 +98,14 @@ export function Dashboard() {
     }
   }
 
-  async function handleRefresh() {
-    if (!activeLeague) return;
-    setRefreshing(true);
-    try {
-      await refreshPredictions(activeLeague);
-      const cacheKey = `${activeLeague}:${selectedDate}`;
-      fetchedRef.current.delete(cacheKey);
-      setLeagueData((prev) => {
-        const next = { ...prev };
-        delete next[activeLeague];
-        return next;
-      });
-      // Re-fetch
-      const data = await fetchLeaguePredictions(activeLeague, selectedDate);
-      fetchedRef.current.add(cacheKey);
-      setLeagueData((prev) => ({ ...prev, [activeLeague]: data }));
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  const currentLeague = activeLeague ? leagueData[activeLeague] : undefined;
-  const allLoaded = Object.values(leagueData);
-  const totalMatches = allLoaded.reduce((s, l) => s + l.matches.length, 0);
-  const totalValueBets = allLoaded.reduce(
+  const currentLeague = activeLeague ? leagueDataMap[activeLeague] : undefined;
+  const totalMatches = allLeagues.reduce((s, l) => s + l.matches.length, 0);
+  const totalValueBets = allLeagues.reduce(
     (s, l) => s + l.matches.reduce((ms, m) => ms + m.value_bets.length, 0),
     0,
   );
+
+  const displayError = initError || error;
 
   return (
     <div>
@@ -168,7 +119,6 @@ export function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Date selector */}
           {availableDates.length > 0 && (
             <div className="relative">
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 pointer-events-none" />
@@ -186,30 +136,15 @@ export function Dashboard() {
             </div>
           )}
 
-          <NeonButton
-            variant="secondary"
-            size="sm"
-            loading={exporting}
-            onClick={() => handleExport('csv')}
-          >
+          <NeonButton variant="secondary" size="sm" loading={exporting} onClick={() => handleExport('csv')}>
             <Download className="w-3.5 h-3.5 mr-1.5 inline" />
             CSV
           </NeonButton>
-          <NeonButton
-            variant="secondary"
-            size="sm"
-            loading={exporting}
-            onClick={() => handleExport('excel')}
-          >
+          <NeonButton variant="secondary" size="sm" loading={exporting} onClick={() => handleExport('excel')}>
             <Download className="w-3.5 h-3.5 mr-1.5 inline" />
             Excel
           </NeonButton>
-          <NeonButton
-            variant="secondary"
-            size="sm"
-            loading={refreshing}
-            onClick={handleRefresh}
-          >
+          <NeonButton variant="secondary" size="sm" loading={refreshing} onClick={handleRefresh}>
             <RefreshCw className="w-3.5 h-3.5 mr-1.5 inline" />
             Atualizar
           </NeonButton>
@@ -226,7 +161,7 @@ export function Dashboard() {
           value={
             totalValueBets > 0
               ? Math.max(
-                  ...allLoaded.flatMap((l) =>
+                  ...allLeagues.flatMap((l) =>
                     l.matches.flatMap((m) => m.value_bets.map((v) => v.edge)),
                   ),
                 )
@@ -240,16 +175,18 @@ export function Dashboard() {
       </div>
 
       {/* Loading / Error */}
-      {loadingLeagues && (
+      {(loadingLeagues || loading) && (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
-          <span className="ml-3 text-white/40">A carregar ligas...</span>
+          <span className="ml-3 text-white/40">
+            {loadingLeagues ? 'A carregar ligas...' : 'A carregar previsões...'}
+          </span>
         </div>
       )}
 
-      {error && (
+      {displayError && !loading && (
         <GlassCard className="text-center py-10">
-          <p className="text-red-400">{error}</p>
+          <p className="text-red-400">{displayError}</p>
           <NeonButton variant="secondary" size="sm" onClick={() => window.location.reload()} className="mt-4">
             Tentar novamente
           </NeonButton>
@@ -257,7 +194,7 @@ export function Dashboard() {
       )}
 
       {/* League tabs */}
-      {!loadingLeagues && !error && leagueList.length > 0 && (
+      {!loadingLeagues && !loading && !displayError && leagueList.length > 0 && (
         <>
           <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide pb-1">
             {leagueList.map((league) => (
@@ -272,24 +209,16 @@ export function Dashboard() {
               >
                 <span>{LEAGUE_ICONS[league.code] || '🏟️'}</span>
                 {league.name}
-                {leagueData[league.code] && (
+                {leagueDataMap[league.code] && (
                   <span className="text-[10px] text-white/30 ml-1">
-                    ({leagueData[league.code].matches.length})
+                    ({leagueDataMap[league.code].matches.length})
                   </span>
                 )}
               </button>
             ))}
           </div>
 
-          {/* Match cards */}
-          {loadingPredictions && (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
-              <span className="ml-3 text-white/40">A carregar previsões...</span>
-            </div>
-          )}
-
-          {!loadingPredictions && currentLeague && currentLeague.matches.length > 0 ? (
+          {currentLeague && currentLeague.matches.length > 0 ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {currentLeague.matches.map((match, i) => (
                 <MatchCard
@@ -299,7 +228,7 @@ export function Dashboard() {
                 />
               ))}
             </div>
-          ) : !loadingPredictions && currentLeague ? (
+          ) : currentLeague ? (
             <GlassCard className="text-center py-10">
               <Trophy className="w-10 h-10 text-white/20 mx-auto mb-3" />
               <p className="text-white/40">
@@ -311,7 +240,7 @@ export function Dashboard() {
         </>
       )}
 
-      {!loadingLeagues && !error && leagueList.length === 0 && (
+      {!loadingLeagues && !loading && !displayError && allLeagues.length === 0 && (
         <GlassCard className="text-center py-10">
           <Trophy className="w-10 h-10 text-white/20 mx-auto mb-3" />
           <p className="text-white/40">

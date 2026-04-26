@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, Loader2, Calendar, Download } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
-import { fetchAvailableDates, fetchLeagues, fetchLeaguePredictions, downloadExport } from '@/lib/api';
+import { fetchAvailableDates, downloadExport } from '@/lib/api';
+import { usePredictions } from '@/contexts/PredictionsContext';
 import type { ValueBet } from '@/types';
 
 interface FlatValueBet extends ValueBet {
@@ -32,68 +33,36 @@ function formatDateLabel(d: string): string {
 }
 
 export function ValueBetsPage() {
-  const [valueBets, setValueBets] = useState<FlatValueBet[]>([]);
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
-  const [loading, setLoading] = useState(true);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
-  // Track which dates have been fetched
-  const fetchedRef = useRef<Set<string>>(new Set());
 
-  // Load available dates once
+  const { data: allLeagues, loading } = usePredictions(selectedDate);
+
   useEffect(() => {
-    (async () => {
-      try {
-        const dates = await fetchAvailableDates();
+    fetchAvailableDates()
+      .then((dates) => {
         setAvailableDates(dates);
         if (dates.length > 0 && !dates.includes(todayStr())) {
           setSelectedDate(dates[0]);
         }
-      } catch {
-        // non-fatal — dates dropdown just won't appear
-      }
-    })();
+      })
+      .catch(() => {});
   }, []);
 
-  // Fetch value bets when date changes
-  useEffect(() => {
-    if (fetchedRef.current.has(selectedDate)) return;
-    fetchedRef.current.add(selectedDate);
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const leagues = await fetchLeagues();
-        const results = await Promise.allSettled(
-          leagues.map((l) => fetchLeaguePredictions(l.code, selectedDate)),
-        );
-        const all: FlatValueBet[] = [];
-        for (const result of results) {
-          if (result.status !== 'fulfilled') continue;
-          const league = result.value;
-          for (const match of league.matches) {
-            for (const vb of match.value_bets) {
-              all.push({
-                ...vb,
-                home_team: match.home_team,
-                away_team: match.away_team,
-                league: match.league,
-              });
-            }
-          }
+  const valueBets = useMemo<FlatValueBet[]>(() => {
+    const flat: FlatValueBet[] = [];
+    for (const league of allLeagues) {
+      for (const match of league.matches) {
+        for (const vb of match.value_bets) {
+          flat.push({ ...vb, home_team: match.home_team, away_team: match.away_team, league: match.league });
         }
-        all.sort((a, b) => b.edge - a.edge);
-        if (!cancelled) setValueBets(all);
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; fetchedRef.current.delete(selectedDate); };
-  }, [selectedDate]);
+    }
+    return flat.sort((a, b) => b.edge - a.edge);
+  }, [allLeagues]);
 
-  const handleDateChange = useCallback((date: string) => {
-    setSelectedDate(date);
-  }, []);
+  const handleDateChange = useCallback((date: string) => setSelectedDate(date), []);
 
   async function handleExport(format: 'csv' | 'excel') {
     setExporting(true);
@@ -178,31 +147,21 @@ export function ValueBetsPage() {
                   <div className="flex items-center gap-4 flex-wrap">
                     <div className="text-center">
                       <p className="text-[10px] text-white/30">Aposta</p>
-                      <p className="text-sm font-semibold text-green-300">
-                        {vb.outcome}
-                      </p>
+                      <p className="text-sm font-semibold text-green-300">{vb.outcome}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[10px] text-white/30">Edge</p>
-                      <p className="text-sm font-bold text-emerald-400">
-                        {vb.edge_pct}
-                      </p>
+                      <p className="text-sm font-bold text-emerald-400">{vb.edge_pct}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[10px] text-white/30">Odds</p>
-                      <p className="text-sm font-semibold text-white/80">
-                        {vb.best_odds.toFixed(2)}
-                      </p>
+                      <p className="text-sm font-semibold text-white/80">{vb.best_odds.toFixed(2)}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[10px] text-white/30">Kelly</p>
-                      <p className="text-sm text-white/60">
-                        {(vb.kelly_fraction * 100).toFixed(1)}%
-                      </p>
+                      <p className="text-sm text-white/60">{(vb.kelly_fraction * 100).toFixed(1)}%</p>
                     </div>
-                    <span
-                      className={`px-2 py-1 rounded-lg text-xs font-medium border ${confidenceColor(vb.confidence)}`}
-                    >
+                    <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${confidenceColor(vb.confidence)}`}>
                       {vb.confidence}
                     </span>
                   </div>

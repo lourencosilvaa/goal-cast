@@ -1,4 +1,4 @@
-"""App status endpoints — retraining flag."""
+"""App status endpoints — retraining flag and build version."""
 
 import os
 from typing import Annotated, Optional
@@ -12,6 +12,36 @@ from src.backend.services.app_settings_service import AppSettingsService
 router = APIRouter(prefix="/api", tags=["status"])
 
 _RETRAIN_KEY = "retraining"
+
+
+class HealthResponse(BaseModel):
+    status: str
+    commit: str
+    build_time: str
+
+
+class VersionResponse(BaseModel):
+    commit: str
+    build_time: str
+
+
+@router.get("/health", response_model=HealthResponse)
+def health_check() -> HealthResponse:
+    """Render health check — returns 200 when the service is up."""
+    return HealthResponse(
+        status="ok",
+        commit=os.environ.get("GIT_SHA", "unknown"),
+        build_time=os.environ.get("BUILD_TIME", "unknown"),
+    )
+
+
+@router.get("/version", response_model=VersionResponse)
+def get_version() -> VersionResponse:
+    """Return the git commit SHA baked into the image at build time."""
+    return VersionResponse(
+        commit=os.environ.get("GIT_SHA", "unknown"),
+        build_time=os.environ.get("BUILD_TIME", "unknown"),
+    )
 
 
 def get_app_settings_service() -> AppSettingsService:
