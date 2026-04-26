@@ -18,7 +18,7 @@ export function Sidebar() {
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
           <Trophy className="w-5 h-5 text-white" />
         </div>
-        <span className="text-lg font-bold gradient-text">FootballAI</span>
+        <span className="text-lg font-bold gradient-text">GoalCast</span>
       </div>
 
       {/* Nav */}
