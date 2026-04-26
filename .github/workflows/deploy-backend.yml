@@ -64,7 +64,7 @@ jobs:
           HTTP_STATUS=$(echo "$RESPONSE" | tail -1)
           echo "Render deploy hook status: $HTTP_STATUS"
           echo "Render deploy hook body: $HTTP_BODY"
-          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ] && [ "$HTTP_STATUS" != "202" ]; then
             echo "::error::Render deploy hook returned $HTTP_STATUS — $HTTP_BODY"
             exit 1
           fi
