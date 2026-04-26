@@ -7,7 +7,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY uv.lock* .
 
-RUN uv sync --no-dev
+RUN uv sync --frozen --no-dev
 
 COPY config/ config/
 COPY src/__init__.py src/__init__.py

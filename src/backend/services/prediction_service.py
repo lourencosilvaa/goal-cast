@@ -11,11 +11,13 @@ Key optimisations over the original per-fixture approach:
 """
 
 import gc
+import json
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -39,6 +41,8 @@ from src.scrapers.odds_aggregator import AggregatedOdds
 CACHE_TTL = 30 * 60
 # Maximum number of league:date entries kept in memory
 MAX_CACHE_ENTRIES = 12
+# Directory for disk-persisted prediction cache
+_DISK_CACHE_DIR = Path("/tmp/prediction_cache")
 
 
 @dataclass
@@ -58,13 +62,14 @@ class LeaguePredictions:
 
 
 class PredictionService:
-    """Manages predictions with caching."""
+    """Manages predictions with caching (in-memory + disk persistence)."""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self._cache: OrderedDict[str, LeaguePredictions] = OrderedDict()
         self._model_dir = Path(config.output.models_dir)
         self._predictor: MatchPredictor | None = None
+        _DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Public API
@@ -73,17 +78,25 @@ class PredictionService:
     def get_league_predictions(
         self, league_code: str, target_date: str | None = None
     ) -> LeaguePredictions:
-        """Get predictions for a league, using cache if available."""
+        """Get predictions for a league, using in-memory → disk → compute."""
         resolved_date = target_date or datetime.now().strftime("%d/%m/%Y")
         cache_key = f"{league_code}:{resolved_date}"
 
+        # 1. In-memory hit
         if cache_key in self._cache and not self._cache[cache_key].is_expired():
-            self._cache.move_to_end(cache_key)  # LRU touch
+            self._cache.move_to_end(cache_key)
             return self._cache[cache_key]
 
+        # 2. Disk hit (survives server restarts)
+        disk_result = self._load_from_disk(cache_key)
+        if disk_result is not None:
+            self._cache[cache_key] = disk_result
+            return disk_result
+
+        # 3. Compute fresh
         result = self._compute_predictions(league_code, resolved_date)
         self._cache[cache_key] = result
-        # Evict oldest entries when cache grows too large
+        self._save_to_disk(cache_key, result)
         while len(self._cache) > MAX_CACHE_ENTRIES:
             self._cache.popitem(last=False)
         return result
@@ -112,13 +125,75 @@ class PredictionService:
         return sorted(dates, key=lambda d: _dt.strptime(d, "%d/%m/%Y"))
 
     def invalidate_cache(self, league_code: str | None = None) -> None:
-        """Clear cached predictions."""
+        """Clear in-memory and disk cached predictions."""
         if league_code:
             keys_to_remove = [k for k in self._cache if k.startswith(league_code)]
             for k in keys_to_remove:
                 del self._cache[k]
+                self._delete_disk_cache(k)
         else:
             self._cache.clear()
+            for f in _DISK_CACHE_DIR.glob("*.json"):
+                f.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------
+    # Disk cache helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _cache_file(cache_key: str) -> Path:
+        safe = cache_key.replace("/", "-").replace(":", "_")
+        return _DISK_CACHE_DIR / f"{safe}.json"
+
+    def _save_to_disk(self, cache_key: str, result: LeaguePredictions) -> None:
+        try:
+            payload: dict[str, Any] = {
+                "timestamp": result.timestamp,
+                "league_code": result.league_code,
+                "league_name": result.league_name,
+                "fixtures": [vars(f) for f in result.fixtures],
+                "predictions": [vars(p) for p in result.predictions],
+                "match_stats": [
+                    vars(s) if s is not None else None for s in result.match_stats
+                ],
+                "value_bets": [vars(v) for v in result.value_bets],
+            }
+            self._cache_file(cache_key).write_text(json.dumps(payload))
+        except Exception as exc:
+            print(f"Disk cache write failed for {cache_key}: {exc}")
+
+    def _load_from_disk(self, cache_key: str) -> LeaguePredictions | None:
+        path = self._cache_file(cache_key)
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text())
+            if time.time() - payload["timestamp"] > CACHE_TTL:
+                path.unlink(missing_ok=True)
+                return None
+            fixtures = [Fixture(**f) for f in payload["fixtures"]]
+            predictions = [MatchPrediction(**p) for p in payload["predictions"]]
+            match_stats: list[MatchStats | None] = [
+                MatchStats(**s) if s is not None else None
+                for s in payload["match_stats"]
+            ]
+            value_bets = [ValueBet(**v) for v in payload["value_bets"]]
+            return LeaguePredictions(
+                league_code=payload["league_code"],
+                league_name=payload["league_name"],
+                fixtures=fixtures,
+                predictions=predictions,
+                match_stats=match_stats,
+                value_bets=value_bets,
+                timestamp=payload["timestamp"],
+            )
+        except Exception as exc:
+            print(f"Disk cache read failed for {cache_key}: {exc}")
+            path.unlink(missing_ok=True)
+            return None
+
+    def _delete_disk_cache(self, cache_key: str) -> None:
+        self._cache_file(cache_key).unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # Internal helpers

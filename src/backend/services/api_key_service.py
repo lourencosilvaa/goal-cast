@@ -16,14 +16,17 @@ class ApiKeyService:
         self._enc = encryption
 
     def get_user_key(self, user_id: str) -> Optional[str]:
-        response = (
-            self._db.table(_TABLE)
-            .select("key_enc")
-            .eq("user_id", user_id)
-            .eq("service", _SERVICE_GEMINI)
-            .maybe_single()
-            .execute()
-        )
+        try:
+            response = (
+                self._db.table(_TABLE)
+                .select("key_enc")
+                .eq("user_id", user_id)
+                .eq("service", _SERVICE_GEMINI)
+                .maybe_single()
+                .execute()
+            )
+        except Exception:
+            return None
         if response is None:
             return None
         data: Optional[dict] = response.data  # type: ignore[union-attr,assignment]
