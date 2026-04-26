@@ -11,8 +11,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+load_dotenv()
 
 # Ensure project root is importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -64,14 +67,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.config = config
     print("ML model loaded, backend ready.")
 
-    # Warm the prediction cache in a background thread so the API
-    # is responsive immediately while predictions are being computed.
+    # Warm the prediction cache in parallel — one thread per league —
+    # so all leagues are ready as fast as possible without blocking startup.
     async def _warm_cache() -> None:
-        try:
-            await asyncio.to_thread(service.get_all_leagues_predictions)
+        league_codes = list(service.config.data.leagues.keys())
+        tasks = [
+            asyncio.to_thread(service.get_league_predictions, code)
+            for code in league_codes
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        failed = [league_codes[i] for i, r in enumerate(results) if isinstance(r, Exception)]
+        if failed:
+            print(f"Cache warm-up failed for: {', '.join(failed)} (non-fatal)")
+        else:
             print("Prediction cache warmed for all leagues.")
-        except Exception as e:
-            print(f"Cache warm-up error (non-fatal): {e}")
 
     task = asyncio.create_task(_warm_cache())
     yield
