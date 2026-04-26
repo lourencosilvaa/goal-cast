@@ -6,6 +6,7 @@ Precomputes all league predictions in a background thread at startup.
 """
 
 import asyncio
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,9 +37,6 @@ from src.backend.api import (
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Pre-load the ML model, config, and warm the cache on startup."""
-    import os
-    from pathlib import Path
-
     from config.config_loader import load_config
     from src.backend.services.model_loader import ModelLoader
     from src.backend.services.prediction_service import PredictionService
@@ -89,9 +87,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="Football Prediction Agent API", lifespan=lifespan)
 
+_cors_origins = os.environ.get(
+    "CORS_ORIGINS", "https://football-prediction-s79r.onrender.com"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
