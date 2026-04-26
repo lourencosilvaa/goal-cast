@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, Settings, Trophy, TrendingUp, ShieldCheck } from 'lucide-react';
+import { BarChart3, Settings, Radio, TrendingUp, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const navItems = [
@@ -16,7 +16,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex items-center gap-3 px-2 mb-8">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
-          <Trophy className="w-5 h-5 text-white" />
+          <Radio className="w-5 h-5 text-white" />
         </div>
         <span className="text-lg font-bold gradient-text">GoalCast</span>
       </div>
