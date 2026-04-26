@@ -1,11 +1,10 @@
-import json
-import tempfile
-from datetime import date
-from pathlib import Path
+import csv
+import io
+from datetime import date, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse, Response
 
 from src.backend.core.auth import get_approved_user
 
@@ -13,101 +12,62 @@ router = APIRouter(prefix="/api/export", tags=["export"])
 
 
 @router.get("")
-def export_predictions(
+async def export_predictions(
+    request: Request,
     _: Annotated[str, Depends(get_approved_user)],
-    format: str = Query(default="csv", pattern="^(csv|excel)$"),
-    report_date: str = Query(default=None),
+    format: str = Query(default="csv", pattern="^(csv)$"),
+    report_date: str | None = Query(default=None),
 ) -> Response:
     """
-    Export latest predictions as CSV or Excel.
-    Reads from the most recent JSON report in output/reports/.
+    Export predictions as CSV.
+
+    Reads pre-computed predictions from Supabase (via PredictionService).
+    Excel export has been removed to avoid heavy pandas/openpyxl dependency.
     """
-    from src.analysis.export_service import ExportService
-    from src.models.predictor import MatchPrediction
-    from src.scrapers.fixtures_fetcher import Fixture
+    service = request.app.state.prediction_service
 
-    report_path = Path("output/reports/value_report_latest.json")
-    if not report_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="No prediction report found. Run find_value_bets.py first.",
-        )
+    # Use the requested date or today
+    target_date = report_date or datetime.now().strftime("%d/%m/%Y")
+    all_results = service.get_all_leagues_predictions(target_date=target_date)
 
-    try:
-        data = json.loads(report_path.read_text())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read report: {e}")
-
-    def _to_match_prediction(p: dict[str, Any]) -> MatchPrediction:
-        probs = p.get("probabilities", {})
-        return MatchPrediction(
-            home_team=p["home_team"],
-            away_team=p["away_team"],
-            home_win_prob=probs.get("home_win", p.get("home_win_prob", 0.0)),
-            draw_prob=probs.get("draw", p.get("draw_prob", 0.0)),
-            away_win_prob=probs.get("away_win", p.get("away_win_prob", 0.0)),
-            predicted_outcome=p["predicted_outcome"],
-            confidence=p["confidence"],
-        )
-
-    predictions = [_to_match_prediction(p) for p in data.get("predictions", [])]
-
-    def _to_fixture(f: dict[str, Any]) -> Fixture:
-        odds = f.get("b365_odds", {})
-        return Fixture(
-            division=f.get("division", ""),
-            league=f.get("league", ""),
-            date=f.get("date", ""),
-            time=f.get("time", ""),
-            home_team=f["home_team"],
-            away_team=f["away_team"],
-            b365_home=odds.get("home", f.get("b365_home", 0.0)),
-            b365_draw=odds.get("draw", f.get("b365_draw", 0.0)),
-            b365_away=odds.get("away", f.get("b365_away", 0.0)),
-        )
-
-    fixtures_data = data.get("fixtures", [])
-    fixtures = (
-        [_to_fixture(f) for f in fixtures_data]
-        if fixtures_data
-        else [
-            Fixture(
-                division="",
-                league="",
-                date="",
-                time="",
-                home_team=p.home_team,
-                away_team=p.away_team,
-                b365_home=0.0,
-                b365_draw=0.0,
-                b365_away=0.0,
+    rows: list[dict[str, Any]] = []
+    for league_pred in all_results:
+        for m in league_pred.matches:
+            probs = m.get("probabilities", {})
+            odds = m.get("odds", {})
+            vbs = m.get("value_bets", [])
+            has_value = len(vbs) > 0
+            rows.append(
+                {
+                    "league": m.get("league", league_pred.league_name),
+                    "time": m.get("time", ""),
+                    "home_team": m["home_team"],
+                    "away_team": m["away_team"],
+                    "predicted_outcome": m.get("predicted_outcome", ""),
+                    "home_win_prob": probs.get("home_win", 0),
+                    "draw_prob": probs.get("draw", 0),
+                    "away_win_prob": probs.get("away_win", 0),
+                    "confidence": m.get("confidence", 0),
+                    "odds_home": odds.get("home", 0),
+                    "odds_draw": odds.get("draw", 0),
+                    "odds_away": odds.get("away", 0),
+                    "value_bet": has_value,
+                }
             )
-            for p in predictions
-        ]
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No predictions found for this date.")
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
+
+    timestamp = target_date.replace("/", "-")
+    return PlainTextResponse(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=predictions_{timestamp}.csv"
+        },
     )
-    if not predictions:
-        raise HTTPException(status_code=404, detail="No predictions in report.")
-
-    service = ExportService()
-    timestamp = report_date or date.today().strftime("%Y-%m-%d")
-
-    if format == "csv":
-        csv_str = service.to_csv(predictions, fixtures, [])
-        return PlainTextResponse(
-            content=csv_str,
-            media_type="text/csv",
-            headers={
-                "Content-Disposition": (
-                    f"attachment; filename=predictions_{timestamp}.csv"
-                )
-            },
-        )
-    else:
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-        service.to_excel(predictions, fixtures, [], output_path=tmp_path)
-        return FileResponse(
-            path=tmp_path,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=f"predictions_{timestamp}.xlsx",
-        )

@@ -20,7 +20,12 @@ def get_stored_predictions(
     match_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Return stored pre-match predictions for a given date."""
-    from src.evaluation.evaluation_service import EvaluationService
+    try:
+        from src.evaluation.evaluation_service import EvaluationService
+    except ImportError:
+        raise HTTPException(
+            status_code=501, detail="Evaluation module not available in this deployment."
+        )
 
     target = match_date or date.today().strftime("%Y-%m-%d")
     service = EvaluationService(storage_dir="output/evaluation")
@@ -39,7 +44,12 @@ def score_predictions(
     _: Annotated[str, Depends(get_approved_user)],
 ) -> dict[str, Any]:
     """Score stored predictions against provided actual results."""
-    from src.evaluation.evaluation_service import EvaluationService
+    try:
+        from src.evaluation.evaluation_service import EvaluationService
+    except ImportError:
+        raise HTTPException(
+            status_code=501, detail="Evaluation module not available in this deployment."
+        )
 
     service = EvaluationService(storage_dir="output/evaluation")
     try:

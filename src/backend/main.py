@@ -5,7 +5,6 @@ Provides prediction endpoints with in-memory caching.
 Precomputes all league predictions in a background thread at startup.
 """
 
-import asyncio
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -36,52 +35,20 @@ from src.backend.api import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Pre-load the ML model, config, and warm the cache on startup."""
+    """Initialize config and prediction service on startup.
+
+    The ML model no longer runs here — predictions are pre-computed
+    by a GitHub Actions job and stored in Supabase.
+    """
     from config.config_loader import load_config
-    from src.backend.services.model_loader import ModelLoader
     from src.backend.services.prediction_service import PredictionService
 
     config = load_config()
-
-    hf_token = os.environ.get("HF_TOKEN", "")
-    hf_repo = os.environ.get("HF_REPO_ID", "")
-    if hf_token and hf_repo:
-        loader = ModelLoader(
-            repo_id=hf_repo,
-            hf_token=hf_token,
-            local_dir=Path(os.environ.get("HF_LOCAL_DIR", "/tmp/hf_models")),
-        )
-        try:
-            downloaded_path = loader.download()
-            model_path = loader.get_model_path("ensemble_model.joblib")
-            config.output.models_dir = str(model_path.parent)
-            config.huggingface.local_dir = str(downloaded_path)
-            print(f"HF model + datasets downloaded to {downloaded_path}")
-        except RuntimeError as e:
-            print(f"HF model download skipped (non-fatal): {e}")
-
     service = PredictionService(config)
     app.state.prediction_service = service
     app.state.config = config
-    print("ML model loaded, backend ready.")
-
-    # Warm the prediction cache sequentially to keep peak memory low.
-    async def _warm_cache() -> None:
-        league_codes = list(service.config.data.leagues.keys())
-        failed = []
-        for code in league_codes:
-            try:
-                await asyncio.to_thread(service.get_league_predictions, code)
-            except Exception:
-                failed.append(code)
-        if failed:
-            print(f"Cache warm-up failed for: {', '.join(failed)} (non-fatal)")
-        else:
-            print("Prediction cache warmed for all leagues.")
-
-    task = asyncio.create_task(_warm_cache())
+    print("Backend ready (predictions served from Supabase).")
     yield
-    task.cancel()
 
 
 app = FastAPI(title="Football Prediction Agent API", lifespan=lifespan)

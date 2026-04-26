@@ -140,92 +140,59 @@ async def refresh_predictions(
     _: Annotated[str, Depends(get_approved_user)],
     league_code: str | None = Query(None),
 ) -> dict[str, str]:
-    """Invalidate cache and recompute predictions."""
+    """Invalidate in-memory cache (predictions are reloaded from Supabase)."""
     service = request.app.state.prediction_service
     service.invalidate_cache(league_code)
     return {"status": "cache_cleared", "league": league_code or "all"}
 
 
 def _build_league_response(result) -> LeaguePredictionsResponse:
-    """Convert internal LeaguePredictions to API response."""
+    """Convert LeaguePredictions (pre-built match dicts from Supabase) to API response."""
     matches = []
-    for fixture, pred, stats in zip(
-        result.fixtures, result.predictions, result.match_stats
-    ):
-        bk_probs = fixture.implied_probabilities()
-
-        # Find value bets for this match
-        match_vbs = [
-            vb
-            for vb in result.value_bets
-            if vb.home_team == pred.home_team and vb.away_team == pred.away_team
-        ]
+    for m in result.matches:
+        probs = m.get("probabilities", {})
+        odds = m.get("odds", {})
+        imp = m.get("implied_probabilities", {})
+        xg = m.get("expected_goals")
+        ou = m.get("over_under")
+        btts = m.get("btts")
+        scorelines = m.get("top_scorelines")
+        form = m.get("form")
+        vbs = m.get("value_bets", [])
 
         match_resp = MatchPredictionResponse(
-            home_team=pred.home_team,
-            away_team=pred.away_team,
-            league=fixture.league,
-            time=fixture.time or "",
+            home_team=m["home_team"],
+            away_team=m["away_team"],
+            league=m.get("league", ""),
+            time=m.get("time", ""),
             probabilities=ProbabilitiesResponse(
-                home_win=round(pred.home_win_prob, 4),
-                draw=round(pred.draw_prob, 4),
-                away_win=round(pred.away_win_prob, 4),
+                home_win=probs.get("home_win", 0),
+                draw=probs.get("draw", 0),
+                away_win=probs.get("away_win", 0),
             ),
-            predicted_outcome=pred.predicted_outcome,
-            confidence=round(pred.confidence, 4),
+            predicted_outcome=m.get("predicted_outcome", ""),
+            confidence=m.get("confidence", 0),
             odds=OddsResponse(
-                home=fixture.b365_home,
-                draw=fixture.b365_draw,
-                away=fixture.b365_away,
+                home=odds.get("home", 0),
+                draw=odds.get("draw", 0),
+                away=odds.get("away", 0),
             ),
             implied_probabilities=ImpliedProbsResponse(
-                home=round(bk_probs.get("home", 0), 4),
-                draw=round(bk_probs.get("draw", 0), 4),
-                away=round(bk_probs.get("away", 0), 4),
+                home=imp.get("home", 0),
+                draw=imp.get("draw", 0),
+                away=imp.get("away", 0),
             ),
-            value_bets=[
-                ValueBetResponse(
-                    outcome=vb.outcome,
-                    ml_probability=round(vb.ml_probability, 4),
-                    bookmaker_implied=round(vb.bookmaker_probability, 4),
-                    edge=round(vb.edge, 4),
-                    edge_pct=f"{vb.edge * 100:.1f}%",
-                    best_odds=round(vb.best_odds, 2),
-                    kelly_fraction=round(vb.kelly_fraction, 4),
-                    confidence=vb.confidence,
-                )
-                for vb in match_vbs
-            ],
+            expected_goals=ExpectedGoalsResponse(**xg) if xg else None,
+            over_under=OverUnderResponse(**ou) if ou else None,
+            btts=BttsResponse(**btts) if btts else None,
+            top_scorelines=(
+                [ScorelineResponse(**s) for s in scorelines]
+                if scorelines
+                else None
+            ),
+            form=FormResponse(**form) if form else None,
+            value_bets=[ValueBetResponse(**vb) for vb in vbs],
         )
-
-        if stats:
-            match_resp.expected_goals = ExpectedGoalsResponse(
-                home=round(stats.home_xg, 2),
-                away=round(stats.away_xg, 2),
-                total=round(stats.total_xg, 2),
-            )
-            match_resp.over_under = OverUnderResponse(
-                over_15=round(stats.over15_prob, 3),
-                over_25=round(stats.over25_prob, 3),
-                over_35=round(stats.over35_prob, 3),
-                under_25=round(stats.under25_prob, 3),
-            )
-            match_resp.btts = BttsResponse(
-                yes=round(stats.btts_yes_prob, 3),
-                no=round(stats.btts_no_prob, 3),
-            )
-            match_resp.top_scorelines = [
-                ScorelineResponse(
-                    score=f"{h}-{a}",
-                    prob=round(p, 3),
-                )
-                for h, a, p in (stats.top_scorelines or [])[:5]
-            ]
-            match_resp.form = FormResponse(
-                home=round(stats.home_form, 2),
-                away=round(stats.away_form, 2),
-            )
-
         matches.append(match_resp)
 
     return LeaguePredictionsResponse(

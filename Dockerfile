@@ -12,15 +12,12 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY uv.lock* .
 
-RUN uv sync --frozen --no-dev
+# Install only the backend dependency group (no ML libs)
+RUN uv sync --frozen --no-dev --group backend
 
 COPY config/ config/
 COPY src/__init__.py src/__init__.py
 COPY src/backend/ src/backend/
-COPY src/models/ src/models/
-COPY src/analysis/ src/analysis/
-COPY src/scrapers/ src/scrapers/
-COPY src/evaluation/ src/evaluation/
 
 EXPOSE 8000
 
