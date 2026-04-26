@@ -12,8 +12,8 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY uv.lock* .
 
-# Install only the backend dependency group (no ML libs)
-RUN uv sync --frozen --no-dev --group backend
+# Install ONLY the backend dependency group (no ML libs like pandas/xgboost/sklearn)
+RUN uv sync --frozen --no-dev --only-group backend
 
 COPY config/ config/
 COPY src/__init__.py src/__init__.py
