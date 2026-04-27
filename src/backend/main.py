@@ -14,6 +14,8 @@ from typing import AsyncGenerator
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
@@ -53,9 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="Football Prediction Agent API", lifespan=lifespan)
 
-_cors_origins = os.environ.get(
-    "CORS_ORIGINS", "https://football-prediction-s79r.onrender.com"
-).split(",")
+_cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,3 +74,16 @@ app.include_router(keys.router)
 app.include_router(admin.router)
 app.include_router(profile.router)
 app.include_router(status.router)
+
+_static_dir = Path(__file__).resolve().parents[2] / "static"
+if _static_dir.exists():
+    _assets_dir = _static_dir / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str) -> FileResponse:
+        candidate = _static_dir / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_static_dir / "index.html"))

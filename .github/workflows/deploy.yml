@@ -1,31 +1,39 @@
-# Deploy frontend to Render on every push to main.
+# Deploy combined backend + frontend service to Render.
 #
-# Flow: build Docker image (nginx + static files) → push to ghcr.io → trigger Render deploy hook.
+# Flow: build Docker image (Python API + React static) → push to ghcr.io → trigger Render deploy hook.
 #
 # ── One-time Render setup ──────────────────────────────────────────────────────
-# 1. Run this workflow manually first (Actions → Deploy Frontend → Run workflow)
-# 2. Create a Web Service on Render:
-#      Image URL: ghcr.io/<github-org>/football-prediction-frontend:latest
-#      Registry credentials: GitHub (same as backend)
-#      Health check path: /
-# 3. Copy the Deploy Hook URL → add as GitHub secret RENDER_FRONTEND_DEPLOY_HOOK_URL
+# 1. Run this workflow manually first (Actions → Deploy → Run workflow)
+# 2. Create a single Web Service on Render:
+#      Image URL: ghcr.io/<github-org>/football-prediction-agent:latest
+#      Registry credentials: GitHub
+#      Port: 8000
+#      Health check path: /api/status (or /)
+# 3. Copy the Deploy Hook URL → set as GitHub secret RENDER_DEPLOY_HOOK_URL
+# 4. Set the following environment variables on the Render service:
+#      CORS_ORIGINS=*  (or a specific domain)
+#      SUPABASE_URL, SUPABASE_SERVICE_KEY, RETRAIN_API_KEY, etc.
+# 5. Remove the old backend and frontend Render services.
 # ───────────────────────────────────────────────────────────────────────────────
 
-name: Deploy Frontend
+name: Deploy
 
 on:
   push:
     branches: [main]
     paths:
+      - "src/backend/**"
       - "src/frontend/**"
-      - "Dockerfile.frontend"
+      - "config/**"
+      - "pyproject.toml"
+      - "Dockerfile"
   workflow_dispatch:
 
 jobs:
   deploy:
     name: Build → Push → Deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     permissions:
       contents: read
@@ -33,14 +41,14 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK_URL }}
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set image name (lowercase)
-        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}-frontend" >> "$GITHUB_ENV"
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -56,17 +64,18 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.frontend
+          file: Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           build-args: |
-            VITE_API_URL=${{ secrets.VITE_API_URL }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
             VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
             VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,scope=frontend,mode=max
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
 
       - name: Trigger Render redeploy
         if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
@@ -84,6 +93,6 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## Frontend Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Deploy Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`$REGISTRY/$IMAGE_NAME:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY

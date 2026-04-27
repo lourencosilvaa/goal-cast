@@ -1,0 +1,55 @@
+name: Prepare Evaluation Dataset
+
+on:
+  # ── Weekly on Wednesdays at 08:00 UTC (weekend + Monday results settled) ──
+  schedule:
+    - cron: "0 8 * * 3"
+
+  # ── Manual trigger with configurable lookback window ──
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: "How many past days to evaluate (default: 14)"
+        type: string
+        default: "14"
+
+jobs:
+  evaluate:
+    name: Score Predictions → Upload Metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --no-dev
+
+      - name: Prepare evaluation dataset
+        run: |
+          DAYS="${{ github.event.inputs.days_back || '14' }}"
+          uv run python scripts/prepare_evaluation_dataset.py --days-back "$DAYS"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Evaluation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Days back:** ${{ github.event.inputs.days_back || '14' }}" >> $GITHUB_STEP_SUMMARY
