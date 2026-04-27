@@ -5,7 +5,6 @@ Provides prediction endpoints with in-memory caching.
 Precomputes all league predictions in a background thread at startup.
 """
 
-import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +12,6 @@ from typing import AsyncGenerator
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -54,16 +52,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="Football Prediction Agent API", lifespan=lifespan)
-
-_cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.include_router(predictions.router)
 app.include_router(leagues.router)
