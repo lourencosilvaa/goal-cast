@@ -1,4 +1,4 @@
-"""API routes for managing user Gemini API keys."""
+"""API routes for managing user API keys (Gemini, NVIDIA)."""
 
 from typing import Annotated
 
@@ -21,37 +21,41 @@ def get_api_key_service() -> ApiKeyService:
     )
 
 
-class GeminiKeyStatus(BaseModel):
+class KeyStatus(BaseModel):
     has_key: bool
 
 
-class GeminiKeyRequest(BaseModel):
+GeminiKeyStatus = KeyStatus
+
+
+class KeyRequest(BaseModel):
     key: str
+
+
+GeminiKeyRequest = KeyRequest
 
 
 class SuccessResponse(BaseModel):
     success: bool
 
 
-@router.get("/gemini", response_model=GeminiKeyStatus)
+@router.get("/gemini", response_model=KeyStatus)
 async def get_gemini_key_status(
     user_id: Annotated[str, Depends(get_current_user)],
     service: Annotated[ApiKeyService, Depends(get_api_key_service)],
-) -> GeminiKeyStatus:
-    """Return whether the authenticated user has a Gemini key stored."""
-    key = service.get_user_key(user_id=user_id)
-    return GeminiKeyStatus(has_key=key is not None)
+) -> KeyStatus:
+    key = service.get_user_key(user_id=user_id, service="gemini")
+    return KeyStatus(has_key=key is not None)
 
 
 @router.put("/gemini", response_model=SuccessResponse)
 async def save_gemini_key(
-    body: GeminiKeyRequest,
+    body: KeyRequest,
     user_id: Annotated[str, Depends(get_current_user)],
     service: Annotated[ApiKeyService, Depends(get_api_key_service)],
 ) -> SuccessResponse:
-    """Store the user's Gemini API key encrypted in Supabase."""
     try:
-        service.set_user_key(user_id=user_id, plaintext_key=body.key)
+        service.set_user_key(user_id=user_id, plaintext_key=body.key, service="gemini")
         return SuccessResponse(success=True)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -62,6 +66,36 @@ async def delete_gemini_key(
     user_id: Annotated[str, Depends(get_current_user)],
     service: Annotated[ApiKeyService, Depends(get_api_key_service)],
 ) -> SuccessResponse:
-    """Remove the user's stored Gemini API key."""
-    service.delete_user_key(user_id=user_id)
+    service.delete_user_key(user_id=user_id, service="gemini")
+    return SuccessResponse(success=True)
+
+
+@router.get("/nvidia", response_model=KeyStatus)
+async def get_nvidia_key_status(
+    user_id: Annotated[str, Depends(get_current_user)],
+    service: Annotated[ApiKeyService, Depends(get_api_key_service)],
+) -> KeyStatus:
+    key = service.get_user_key(user_id=user_id, service="nvidia")
+    return KeyStatus(has_key=key is not None)
+
+
+@router.put("/nvidia", response_model=SuccessResponse)
+async def save_nvidia_key(
+    body: KeyRequest,
+    user_id: Annotated[str, Depends(get_current_user)],
+    service: Annotated[ApiKeyService, Depends(get_api_key_service)],
+) -> SuccessResponse:
+    try:
+        service.set_user_key(user_id=user_id, plaintext_key=body.key, service="nvidia")
+        return SuccessResponse(success=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.delete("/nvidia", response_model=SuccessResponse)
+async def delete_nvidia_key(
+    user_id: Annotated[str, Depends(get_current_user)],
+    service: Annotated[ApiKeyService, Depends(get_api_key_service)],
+) -> SuccessResponse:
+    service.delete_user_key(user_id=user_id, service="nvidia")
     return SuccessResponse(success=True)

@@ -114,6 +114,63 @@ export async function deleteGeminiKey(): Promise<void> {
   await fetch(`${BASE}/api/keys/gemini`, { method: 'DELETE', headers });
 }
 
+export async function getNvidiaKeyStatus(): Promise<boolean> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/keys/nvidia`, { headers });
+  if (!res.ok) return false;
+  const data = await res.json();
+  return data.has_key as boolean;
+}
+
+export async function saveNvidiaKey(key: string): Promise<void> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/keys/nvidia`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ key }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to save key' }));
+    throw new Error(err.detail || 'Failed to save key');
+  }
+}
+
+export async function deleteNvidiaKey(): Promise<void> {
+  const headers = await authHeaders();
+  await fetch(`${BASE}/api/keys/nvidia`, { method: 'DELETE', headers });
+}
+
+export interface InferencePrediction {
+  home_team: string;
+  away_team: string;
+  predicted_outcome: string;
+  confidence: number;
+  probabilities?: { home_win: number; draw: number; away_win: number };
+  league?: string;
+  match_date?: string;
+  time?: string;
+}
+
+export async function runInference(
+  date?: string,
+  leagueCode?: string,
+): Promise<InferencePrediction[]> {
+  const headers = await authHeaders();
+  const params = new URLSearchParams();
+  if (date) params.set('date', date);
+  if (leagueCode) params.set('league_code', leagueCode);
+  const res = await fetch(`${BASE}/api/predictions/infer?${params}`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Inference failed' }));
+    throw new Error(err.detail || 'Inference failed');
+  }
+  const data = await res.json();
+  return data.predictions as InferencePrediction[];
+}
+
 // ── Retrain status ────────────────────────────────────────────────────────────
 
 export async function fetchRetrainStatus(): Promise<boolean> {

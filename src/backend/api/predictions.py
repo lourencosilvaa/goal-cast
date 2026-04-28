@@ -186,9 +186,7 @@ def _build_league_response(result) -> LeaguePredictionsResponse:
             over_under=OverUnderResponse(**ou) if ou else None,
             btts=BttsResponse(**btts) if btts else None,
             top_scorelines=(
-                [ScorelineResponse(**s) for s in scorelines]
-                if scorelines
-                else None
+                [ScorelineResponse(**s) for s in scorelines] if scorelines else None
             ),
             form=FormResponse(**form) if form else None,
             value_bets=[ValueBetResponse(**vb) for vb in vbs],

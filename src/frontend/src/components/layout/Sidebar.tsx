@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, Settings, Radio, TrendingUp, ShieldCheck } from 'lucide-react';
+import { BarChart3, Settings, Radio, TrendingUp, ShieldCheck, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const navItems = [
@@ -9,7 +9,7 @@ const navItems = [
 ];
 
 export function Sidebar() {
-  const { profile } = useAuth();
+  const { profile, signOut } = useAuth();
 
   return (
     <aside className="hidden md:flex flex-col w-64 h-screen glass border-r border-white/[0.06] p-4">
@@ -56,6 +56,15 @@ export function Sidebar() {
           </NavLink>
         )}
       </nav>
+
+      {/* Logout */}
+      <button
+        onClick={signOut}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 text-white/50 hover:text-red-400 hover:bg-red-500/10 border border-transparent w-full"
+      >
+        <LogOut className="w-4 h-4" />
+        Terminar sessão
+      </button>
     </aside>
   );
 }

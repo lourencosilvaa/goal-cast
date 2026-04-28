@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import date, datetime
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -56,7 +56,9 @@ async def export_predictions(
             )
 
     if not rows:
-        raise HTTPException(status_code=404, detail="No predictions found for this date.")
+        raise HTTPException(
+            status_code=404, detail="No predictions found for this date."
+        )
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))

@@ -25,6 +25,7 @@ from src.backend.api import (
     ai,
     evaluation,
     exports,
+    inference,
     keys,
     leagues,
     predictions,
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(title="Football Prediction Agent API", lifespan=lifespan)
 
 app.include_router(predictions.router)
+app.include_router(inference.router)
 app.include_router(leagues.router)
 app.include_router(ai.router)
 app.include_router(exports.router)

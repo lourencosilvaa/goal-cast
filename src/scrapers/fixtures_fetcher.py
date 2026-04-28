@@ -13,8 +13,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import requests
+
+if TYPE_CHECKING:
+    from src.scrapers.base_scraper import BaseFixtureScraper
 
 FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 _CACHE_DIR = Path("datasets/cache")
@@ -150,9 +154,13 @@ def fetch_fixtures(
             )
         )
 
-    # Fallback: if CSV had no fixtures for this date, try The Odds API
+    # Fallback 1: if CSV had no fixtures for this date, try The Odds API
     if not fixtures:
         fixtures = _fetch_odds_api_fixtures(target_date, leagues)
+
+    # Fallback 2: if OddsAPI also empty, try FlashScore
+    if not fixtures:
+        fixtures = _fetch_flashscore_fixtures(target_date, leagues)
 
     return fixtures
 
@@ -213,6 +221,65 @@ def _fetch_odds_api_fixtures(
         )
     except Exception as e:
         print(f"[OddsAPI fallback] Error: {e}")
+        return []
+
+
+def _build_flashscore_scraper() -> "BaseFixtureScraper":
+    """Instantiate a FlashScoreScraper from project config."""
+    from config.config_loader import load_config
+    from src.scrapers.flashscore.http_client import FlashScoreHttpClient
+    from src.scrapers.flashscore.parser import FlashScoreParser
+    from src.scrapers.flashscore.playwright_client import FlashScorePlaywrightClient
+    from src.scrapers.flashscore.scraper import FlashScoreScraper
+
+    cfg = load_config()
+    fs_cfg = cfg.scrapers.flashscore
+    http_client = FlashScoreHttpClient(fs_cfg)
+    pw_client = FlashScorePlaywrightClient(fs_cfg)
+    parser = FlashScoreParser()
+    return FlashScoreScraper(fs_cfg, http_client, pw_client, parser)
+
+
+def _fetch_flashscore_fixtures(
+    target_date: str,
+    leagues: list[str] | None = None,
+) -> list[Fixture]:
+    """Fetch fixtures from FlashScore as a tertiary fallback source."""
+    try:
+        from src.scrapers.flashscore.exceptions import FlashScoreUnavailableError
+
+        scraper = _build_flashscore_scraper()
+        if leagues is None:
+            leagues = list(scraper.get_available_leagues().keys())  # type: ignore[union-attr]
+
+        fixtures: list[Fixture] = []
+        for league_code in leagues:
+            try:
+                fs_fixtures = scraper.scrape_fixtures(league_code)  # type: ignore[union-attr]
+                for fs in fs_fixtures:
+                    league_name = DIVISION_MAP.get(league_code, fs.league)
+                    fixtures.append(
+                        Fixture(
+                            division=league_code,
+                            league=league_name,
+                            date=target_date,
+                            time=(
+                                fs.match_datetime[11:16]
+                                if len(fs.match_datetime) >= 16
+                                else ""
+                            ),
+                            home_team=fs.home_team,
+                            away_team=fs.away_team,
+                            b365_home=0.0,
+                            b365_draw=0.0,
+                            b365_away=0.0,
+                        )
+                    )
+            except FlashScoreUnavailableError:
+                continue
+        return fixtures
+    except Exception as e:
+        print(f"[FlashScore fallback] Error: {e}")
         return []
 
 

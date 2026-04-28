@@ -98,6 +98,22 @@ scrapers:
   solverde:
     base_url: "https://www.solverde.pt/apostas/futebol"
     enabled: true
+  flashscore:
+    base_url: "https://www.flashscore.com"
+    api_url: "https://d.flashscore.com/x/feed"
+    token_url: "https://www.flashscore.com"
+    enabled: true
+    http_enabled: true
+    playwright_fallback_enabled: true
+    leagues:
+      E0: "england/premier-league"
+      SP1: "spain/laliga"
+      D1: "germany/bundesliga"
+      I1: "italy/serie-a"
+      F1: "france/ligue-1"
+      P1: "portugal/liga-portugal"
+      CL: "europe/champions-league"
+      EL: "europe/europa-league"
 
 analysis:
   value_threshold: 0.05
@@ -131,6 +147,10 @@ supabase:
 
 retrain_check:
   enabled: true
+
+inference:
+  enabled: true
+  space_url: ""  # Set via HF_SPACE_URL env var
 
 evaluation:
   storage_dir: "output/evaluation"

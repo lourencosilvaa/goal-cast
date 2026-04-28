@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, Loader2, Calendar, Download, CircleSlash } from 'lucide-react';
+import { RefreshCw, Loader2, Calendar, Download, CircleSlash, Cpu } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
 import { MatchCard } from '@/components/match/MatchCard';
-import { fetchAvailableDates, fetchLeagues, downloadExport } from '@/lib/api';
+import { fetchAvailableDates, fetchLeagues, downloadExport, runInference } from '@/lib/api';
+import type { InferencePrediction } from '@/lib/api';
 import { usePredictions } from '@/contexts/PredictionsContext';
 import type { League } from '@/types';
 
@@ -43,6 +44,9 @@ export function Dashboard() {
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [inferring, setInferring] = useState(false);
+  const [inferResults, setInferResults] = useState<InferencePrediction[] | null>(null);
+  const [inferError, setInferError] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
 
   const { data: allLeagues, loading, error, invalidate } = usePredictions(selectedDate);
@@ -86,6 +90,20 @@ export function Dashboard() {
       await invalidate();
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function handleInference() {
+    setInferring(true);
+    setInferResults(null);
+    setInferError(null);
+    try {
+      const results = await runInference(selectedDate, activeLeague ?? undefined);
+      setInferResults(results);
+    } catch (err) {
+      setInferError(err instanceof Error ? err.message : 'Erro na inferência');
+    } finally {
+      setInferring(false);
     }
   }
 
@@ -148,6 +166,10 @@ export function Dashboard() {
             <RefreshCw className="w-3.5 h-3.5 mr-1.5 inline" />
             Atualizar
           </NeonButton>
+          <NeonButton variant="secondary" size="sm" loading={inferring} onClick={handleInference}>
+            <Cpu className="w-3.5 h-3.5 mr-1.5 inline" />
+            Calcular ao vivo
+          </NeonButton>
         </div>
       </div>
 
@@ -173,6 +195,44 @@ export function Dashboard() {
           delay={0.15}
         />
       </div>
+
+      {/* Live inference results */}
+      {inferError && (
+        <GlassCard className="mb-4 text-center py-4">
+          <p className="text-red-400 text-sm">✗ {inferError}</p>
+        </GlassCard>
+      )}
+      {inferResults && inferResults.length === 0 && (
+        <GlassCard className="mb-4 text-center py-4">
+          <p className="text-white/40 text-sm">Sem previsões ao vivo para esta seleção.</p>
+        </GlassCard>
+      )}
+      {inferResults && inferResults.length > 0 && (
+        <GlassCard className="mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Cpu className="w-4 h-4 text-green-400" />
+            <h3 className="text-sm font-semibold text-white/80">Previsões ao vivo (modelo HF)</h3>
+            <button
+              onClick={() => setInferResults(null)}
+              className="ml-auto text-xs text-white/30 hover:text-white/60"
+            >
+              Fechar
+            </button>
+          </div>
+          <div className="space-y-2">
+            {inferResults.map((r, i) => (
+              <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                <span className="text-sm text-white/70">{r.home_team} vs {r.away_team}</span>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-white/50">{r.league ?? ''}</span>
+                  <span className="text-green-400 font-medium">{r.predicted_outcome}</span>
+                  <span className="text-white/30">{(r.confidence * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      )}
 
       {/* Loading / Error */}
       {(loadingLeagues || loading) && (

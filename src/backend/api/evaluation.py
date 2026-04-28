@@ -24,7 +24,8 @@ def get_stored_predictions(
         from src.evaluation.evaluation_service import EvaluationService
     except ImportError:
         raise HTTPException(
-            status_code=501, detail="Evaluation module not available in this deployment."
+            status_code=501,
+            detail="Evaluation module not available in this deployment.",
         )
 
     target = match_date or date.today().strftime("%Y-%m-%d")
@@ -48,7 +49,8 @@ def score_predictions(
         from src.evaluation.evaluation_service import EvaluationService
     except ImportError:
         raise HTTPException(
-            status_code=501, detail="Evaluation module not available in this deployment."
+            status_code=501,
+            detail="Evaluation module not available in this deployment.",
         )
 
     service = EvaluationService(storage_dir="output/evaluation")

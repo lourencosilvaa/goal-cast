@@ -10,7 +10,8 @@ A full-stack web application that combines a **ML ensemble model** with **AI-pow
 ┌─────────────────────────────────────────────────────────┐
 │                   FRONTEND (React/Vite)                  │
 │  Dashboard │ Value Bets │ Settings │ Admin Panel         │
-│  Supabase Auth (email/password) │ Per-user Gemini key   │
+│  Supabase Auth │ Per-user Gemini + NVIDIA keys           │
+│  "Calcular ao vivo" — on-demand inference button         │
 └────────────────────────┬────────────────────────────────┘
                          │ HTTPS
                          ▼
@@ -18,30 +19,32 @@ A full-stack web application that combines a **ML ensemble model** with **AI-pow
 │              BACKEND (FastAPI — lightweight)              │
 │  /api/predictions │ /api/leagues │ /api/ai/analyze       │
 │  /api/admin │ /api/keys │ /api/export │ /api/status      │
+│  /api/predictions/infer  ◄── on-demand inference proxy   │
 │  Reads pre-computed predictions from Supabase (~50 MB)   │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│                       Supabase                           │
-│  Auth │ user_profiles │ user_api_keys │ app_settings     │
-│  predictions (JSONB — pre-computed by inference job)      │
-└──────────────────────────▲──────────────────────────────┘
-                           │
-┌──────────────────────────┴──────────────────────────────┐
-│            GitHub Actions (daily + on retrain)            │
-│  run_inference.py: loads model from HF, runs ML pipeline │
-│  per league, uploads results to Supabase predictions     │
-└──────────────────────────▲──────────────────────────────┘
-                           │
-┌──────────────────────────┴──────────────────────────────┐
-│                    Hugging Face Hub                       │
-│  Private repo: ML model (.joblib) + datasets (.parquet)  │
-│  Updated weekly by retrain.yml workflow                   │
-└─────────────────────────────────────────────────────────┘
+└──────────────┬──────────────────────────┬───────────────┘
+               │ pre-computed             │ on-demand
+               ▼                          ▼
+┌──────────────────────┐   ┌─────────────────────────────┐
+│       Supabase        │   │   HuggingFace Space          │
+│  Auth                 │   │   Docker FastAPI service     │
+│  user_profiles        │   │   POST /infer                │
+│  user_api_keys        │   │   Loads model at startup     │
+│  app_settings         │   │   Fetches fixtures → feature │
+│  predictions (JSONB)  │   │   engineering → ensemble     │
+└──────────▲────────────┘   └──────────────▲──────────────┘
+           │                               │
+┌──────────┴──────────┐     ┌──────────────┴──────────────┐
+│   GitHub Actions     │     │      Hugging Face Hub        │
+│  daily + on retrain  │     │  Private repo                │
+│  run_inference.py    │     │  ML model (.joblib)          │
+│  uploads JSONB to    │     │  datasets (.parquet)         │
+│  Supabase            │     │  Updated weekly by retrain   │
+└──────────────────────┘     └─────────────────────────────┘
 ```
 
-**Key design decision:** ML inference runs **offline** in GitHub Actions (daily at 06:30 UTC). The backend never loads the ML model or historical data — it reads pre-computed predictions from Supabase. This keeps the backend under 50 MB of memory, well within Render free-tier limits (512 MB).
+**Two inference paths:**
+- **Offline (default):** GitHub Actions runs `run_inference.py` daily at 06:30 UTC, uploads pre-computed predictions to Supabase. The backend just reads them — no ML at runtime, under 50 MB.
+- **On-demand ("Calcular ao vivo"):** The backend proxies a request to the **HuggingFace Space**, which holds the model in memory, fetches live fixtures, runs the full pipeline, and returns predictions in seconds.
 
 ---
 
@@ -106,7 +109,9 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 - Daily match predictions for all 6 leagues
 - Confidence levels and blended probabilities
 - AI analysis per match (Google Gemini)
-- Export predictions to CSV
+- **On-demand inference** ("Calcular ao vivo") — calls the HF Space directly for live predictions
+- Export predictions to CSV / Excel
+- Date picker to browse predictions for upcoming fixtures
 
 ### Value Bets
 - Auto-detected value opportunities (edge ≥ 3%)
@@ -114,6 +119,7 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 
 ### Settings
 - Per-user Google Gemini API key (stored encrypted in Supabase)
+- Per-user NVIDIA API key (same encrypted storage, separate `service` record)
 - Gemini model selection (2.5 Flash / 2.5 Pro / 2.0 Flash / 2.0 Flash Lite)
 
 ### Admin Panel
@@ -125,6 +131,7 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 - Email/password login via Supabase
 - Self-registration — new accounts require admin approval before access
 - Pending approval screen shown to unapproved users
+- **Logout button** available in the sidebar and mobile navigation
 
 ### Retraining Banner
 - Amber banner shown automatically when the ML model is being retrained
@@ -140,19 +147,28 @@ football-prediction-agent/
 │   └── workflows/
 │       ├── retrain.yml            # Weekly model retraining + HF upload
 │       ├── run-inference.yml      # Daily inference → Supabase upload
-│       ├── deploy-backend.yml     # Build Docker image → Render redeploy
-│       └── deploy-frontend.yml    # Build frontend → Render static site
+│       ├── deploy.yml             # Build Docker image → Render redeploy
+│       └── deploy-hf-space.yml    # Sync hf_space/ → HuggingFace Space
 ├── config/
 │   ├── config.yaml                # Centralized configuration
-│   └── config_loader.py           # Pydantic config loader
+│   └── config_loader.py           # Pydantic config loader (env var overrides)
+├── hf_space/                      # Self-contained HuggingFace Space (Docker)
+│   ├── Dockerfile                 # Python 3.11, uvicorn, port 7860
+│   ├── requirements.txt           # FastAPI + full ML stack
+│   ├── app.py                     # FastAPI: /health + POST /infer
+│   ├── config/
+│   │   ├── config.yaml            # Space-specific config
+│   │   └── config_loader.py       # Minimal Pydantic loader + env var injection
+│   └── src/models/                # Copies of predictor, feature_engineer, data_loader
 ├── src/
-│   ├── backend/                   # Lightweight FastAPI (no ML deps)
+│   ├── backend/                   # Lightweight FastAPI (no ML deps at runtime)
 │   │   ├── api/
 │   │   │   ├── admin.py           # User management (list, create, approve/revoke)
 │   │   │   ├── ai.py              # Gemini match analysis
 │   │   │   ├── evaluation.py      # Model evaluation stats
-│   │   │   ├── exports.py         # CSV export (reads from Supabase)
-│   │   │   ├── keys.py            # Per-user Gemini key CRUD
+│   │   │   ├── exports.py         # CSV/Excel export (reads from Supabase)
+│   │   │   ├── inference.py       # POST /api/predictions/infer (proxy to HF Space)
+│   │   │   ├── keys.py            # Per-user Gemini + NVIDIA key CRUD
 │   │   │   ├── leagues.py         # Available leagues
 │   │   │   ├── predictions.py     # Match predictions (reads from Supabase)
 │   │   │   ├── profile.py         # User profile + self-registration
@@ -162,21 +178,26 @@ football-prediction-agent/
 │   │   │   ├── encryption.py      # Fernet symmetric encryption
 │   │   │   └── supabase_client.py # Supabase service-role client singleton
 │   │   ├── services/
-│   │   │   ├── api_key_service.py       # Encrypted key storage
+│   │   │   ├── api_key_service.py       # Encrypted key storage (Gemini + NVIDIA)
 │   │   │   ├── app_settings_service.py  # app_settings table CRUD
-│   │   │   ├── model_loader.py          # HuggingFace download (used by inference script)
+│   │   │   ├── inference_service.py     # HTTP client → HF Space /infer
+│   │   │   ├── model_loader.py          # HuggingFace download (inference script)
 │   │   │   ├── prediction_service.py    # Reads predictions from Supabase
 │   │   │   └── user_service.py          # user_profiles table CRUD
 │   │   └── main.py                # FastAPI app (lightweight startup, no ML)
 │   ├── frontend/                  # React + TypeScript + Vite
 │   │   └── src/
 │   │       ├── components/        # GlassCard, NeonButton, RetrainingBanner, …
+│   │       │   └── layout/        # Sidebar + MobileNav (with logout button)
 │   │       ├── contexts/          # AuthContext (Supabase session + profile)
 │   │       ├── lib/               # api.ts (all backend calls), supabase.ts
 │   │       ├── pages/             # Dashboard, ValueBets, Settings, Admin, Login
 │   │       └── App.tsx            # Routes (ProtectedRoute, AdminRoute)
 │   ├── models/                    # ML pipeline (data_loader, feature_engineer, trainer, predictor)
-│   ├── scrapers/                  # Fixtures fetcher + odds scrapers
+│   ├── scrapers/
+│   │   ├── fixtures_fetcher.py    # football-data.co.uk CSV → OddsAPI → FlashScore
+│   │   ├── flashscore/            # FlashScore scraper (HTTP + Playwright fallback)
+│   │   └── ...                    # Odds scrapers (Betclic, Betano, Solverde)
 │   └── analysis/                  # Value detection, KL divergence, Poisson match stats
 ├── scripts/
 │   ├── train_model.py             # Train ML ensemble (writes seasons_trained)
@@ -226,6 +247,7 @@ The app runs as two separate services on **Render**, backed by **Supabase** (aut
 | Backend API | Render Web Service | Docker (`Dockerfile` at repo root) |
 | Frontend | Render Static Site | Node build from `src/frontend` |
 | Database & Auth | Supabase | — |
+| On-demand Inference | HuggingFace Space | Docker (`hf_space/`) |
 | ML Model + Datasets | Hugging Face Hub | Private repo (`datasets/` subfolder) |
 
 ---
@@ -322,6 +344,23 @@ Collect:
 
 ---
 
+### Step 2b — HuggingFace Space (on-demand inference)
+
+1. Create a **Docker Space** at [huggingface.co/spaces](https://huggingface.co/spaces)
+2. Note its repo ID (e.g. `username/football-prediction`)
+3. The `deploy-hf-space.yml` workflow will sync `hf_space/` automatically on every push to `main`
+
+Set the following **Space secrets** (Space → Settings → Variables and secrets):
+
+| Secret | Description |
+|--------|-------------|
+| `HF_REPO_ID` | Your model repo ID (same as above) |
+| `HF_TOKEN` | HuggingFace access token |
+
+The Space downloads the model at startup and keeps it warm in memory — no per-request download.
+
+---
+
 ### Step 3 — Backend (Render Web Service)
 
 Create a **Web Service** on Render with runtime **Docker** pointing to the repo root.
@@ -330,8 +369,9 @@ Create a **Web Service** on Render with runtime **Docker** pointing to the repo 
 |----------------------|-------------|---------------|
 | `SUPABASE_URL` | Supabase project URL | Supabase → Settings → API |
 | `SUPABASE_SERVICE_KEY` | Service role secret | Supabase → Settings → API |
-| `ENCRYPTION_KEY` | Fernet key for encrypting Gemini keys at rest | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `ENCRYPTION_KEY` | Fernet key for encrypting API keys at rest | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `RETRAIN_API_KEY` | Secret for the retraining webhook | `openssl rand -hex 32` |
+| `HF_SPACE_URL` | Public URL of your HuggingFace Space | Space → `https://username-space-name.hf.space` |
 
 Set the **Health check path** to `/api/leagues`.
 
@@ -363,7 +403,8 @@ Add these in **GitHub → Settings → Secrets and variables → Actions**:
 | Secret | Description |
 |--------|-------------|
 | `HF_TOKEN` | Hugging Face access token |
-| `HF_REPO_ID` | HF repo ID (`user/repo`) |
+| `HF_REPO_ID` | HF model repo ID (`user/repo`) |
+| `HF_SPACE_REPO_ID` | HF Space repo ID (`user/space-name`) — used by `deploy-hf-space.yml` |
 | `SUPABASE_URL` | Supabase project URL (for inference job) |
 | `SUPABASE_SERVICE_KEY` | Service role secret (for inference job) |
 | `RENDER_DEPLOY_HOOK_URL` | Render deploy hook (backend service → Settings → Deploy Hook) |
@@ -392,7 +433,7 @@ Runs **daily at 06:30 UTC**, after retraining completes, or manually:
 
 ```
 GitHub Actions — Retrain (every Monday 06:00 UTC)
-  └─► retrains model → uploads to Hugging Face
+  └─► retrains model → uploads to Hugging Face model repo
   └─► triggers inference workflow
 
 GitHub Actions — Inference (daily 06:30 UTC + after retrain)
@@ -400,11 +441,20 @@ GitHub Actions — Inference (daily 06:30 UTC + after retrain)
   └─► runs ML pipeline for all leagues
   └─► uploads predictions JSONB to Supabase predictions table
 
+GitHub Actions — Deploy HF Space (on push to main, hf_space/** changed)
+  └─► pushes hf_space/ to HuggingFace Space via huggingface_hub
+
+HuggingFace Space (Docker — on-demand inference)
+  └─► loads model from HF model repo at startup (held in memory)
+  └─► POST /infer: fetches fixtures → features → ensemble → predictions
+  └─► called by backend InferenceService when user clicks "Calcular ao vivo"
+
 Render (Backend — lightweight, ~50 MB)
   └─► Docker image with backend deps only (no pandas/sklearn/xgboost)
   └─► reads predictions from Supabase (no ML at runtime)
-  └─► serves auth, admin, AI analysis, exports, API keys
-  └─► uses ENCRYPTION_KEY to decrypt per-user Gemini keys
+  └─► proxies on-demand requests to HF Space via InferenceService
+  └─► serves auth, admin, AI analysis, exports, API keys (Gemini + NVIDIA)
+  └─► uses ENCRYPTION_KEY to decrypt per-user API keys
 
 Render (Frontend)
   └─► static build from src/frontend
@@ -414,7 +464,7 @@ Render (Frontend)
 Supabase
   └─► predictions   (pre-computed ML predictions per league+date)
   └─► user_profiles  (approved, is_admin)
-  └─► user_api_keys  (encrypted Gemini keys)
+  └─► user_api_keys  (encrypted Gemini + NVIDIA keys, keyed by user_id+service)
   └─► app_settings   (retraining flag)
 ```
 
@@ -439,7 +489,9 @@ Create a `.env` file (or export directly):
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your-service-role-key
 ENCRYPTION_KEY=your-fernet-key
-# Optional — skips HF download if absent; data is fetched from football-data.co.uk instead
+# On-demand inference — set to your HF Space URL (or omit to disable the feature)
+HF_SPACE_URL=https://username-space-name.hf.space
+# Optional — used only by offline inference scripts
 HF_TOKEN=hf_...
 HF_REPO_ID=username/repo
 RETRAIN_API_KEY=any-local-secret

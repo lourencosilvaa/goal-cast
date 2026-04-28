@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Key, Sparkles, Shield, ExternalLink, Cpu, LogOut, Loader2 } from 'lucide-react';
+import { Key, Sparkles, Shield, ExternalLink, Cpu, LogOut, Loader2, Zap } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
 import { useAuth } from '@/contexts/AuthContext';
-import { getGeminiKeyStatus, saveGeminiKey, deleteGeminiKey } from '@/lib/api';
+import {
+  getGeminiKeyStatus, saveGeminiKey, deleteGeminiKey,
+  getNvidiaKeyStatus, saveNvidiaKey, deleteNvidiaKey,
+} from '@/lib/api';
 
 const GEMINI_MODELS = [
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
@@ -17,6 +20,10 @@ export function SettingsPage() {
   const [geminiKey, setGeminiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
   const [hasStoredKey, setHasStoredKey] = useState(false);
+  const [nvidiaKey, setNvidiaKey] = useState('');
+  const [hasNvidiaKey, setHasNvidiaKey] = useState(false);
+  const [savingNvidia, setSavingNvidia] = useState(false);
+  const [nvidiaFeedback, setNvidiaFeedback] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
@@ -24,7 +31,43 @@ export function SettingsPage() {
     const storedModel = localStorage.getItem('gemini_model') || 'gemini-2.5-flash';
     setGeminiModel(storedModel);
     getGeminiKeyStatus().then(setHasStoredKey).catch(() => null);
+    getNvidiaKeyStatus().then(setHasNvidiaKey).catch(() => null);
   }, []);
+
+  function showNvidiaFeedback(type: 'ok' | 'err', msg: string) {
+    setNvidiaFeedback({ type, msg });
+    setTimeout(() => setNvidiaFeedback(null), 3000);
+  }
+
+  async function handleSaveNvidia() {
+    setSavingNvidia(true);
+    try {
+      if (nvidiaKey.trim()) {
+        await saveNvidiaKey(nvidiaKey.trim());
+        setNvidiaKey('');
+        setHasNvidiaKey(true);
+      }
+      showNvidiaFeedback('ok', 'Chave NVIDIA guardada');
+    } catch (err) {
+      showNvidiaFeedback('err', err instanceof Error ? err.message : 'Erro ao guardar');
+    } finally {
+      setSavingNvidia(false);
+    }
+  }
+
+  async function handleClearNvidia() {
+    setSavingNvidia(true);
+    try {
+      await deleteNvidiaKey();
+      setNvidiaKey('');
+      setHasNvidiaKey(false);
+      showNvidiaFeedback('ok', 'Chave removida');
+    } catch {
+      showNvidiaFeedback('err', 'Erro ao remover chave');
+    } finally {
+      setSavingNvidia(false);
+    }
+  }
 
   function showFeedback(type: 'ok' | 'err', msg: string) {
     setFeedback({ type, msg });
@@ -176,6 +219,75 @@ export function SettingsPage() {
           {feedback && (
             <p className={`text-xs text-center mt-3 ${feedback.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
               {feedback.type === 'ok' ? '✓' : '✗'} {feedback.msg}
+            </p>
+          )}
+        </GlassCard>
+
+        {/* NVIDIA API key card */}
+        <GlassCard gradient="green">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-600 to-teal-600 flex items-center justify-center">
+              <Zap className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white/90">NVIDIA API Key</h2>
+              <p className="text-xs text-white/40">Para modelos NIM e inferência acelerada por GPU</p>
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <label className="block text-sm text-white/60 mb-2">
+              <Zap className="w-3.5 h-3.5 inline mr-1.5" />
+              NVIDIA NIM API Key
+              {hasNvidiaKey && (
+                <span className="ml-2 text-[10px] text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">
+                  Configurada
+                </span>
+              )}
+            </label>
+            <div className="relative">
+              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+              <input
+                type="password"
+                value={nvidiaKey}
+                onChange={(e) => setNvidiaKey(e.target.value)}
+                placeholder={hasNvidiaKey ? '••••••••  (deixa em branco para manter)' : 'nvapi-...'}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 font-mono placeholder:text-white/20 transition-colors"
+              />
+            </div>
+            <a
+              href="https://build.nvidia.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-green-400 hover:text-green-300 mt-2 transition-colors"
+            >
+              Obter chave em build.nvidia.com <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+
+          <GlassCard padding="sm" className="mb-5">
+            <div className="flex items-start gap-2">
+              <Shield className="w-4 h-4 text-teal-400 mt-0.5 shrink-0" />
+              <p className="text-xs text-white/50 leading-relaxed">
+                A chave é encriptada com Fernet AES antes de ser guardada. Nunca é exposta ao cliente.
+              </p>
+            </div>
+          </GlassCard>
+
+          <div className="flex gap-3">
+            <NeonButton onClick={handleSaveNvidia} className="flex-1" disabled={savingNvidia}>
+              {savingNvidia ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Guardar'}
+            </NeonButton>
+            {hasNvidiaKey && (
+              <NeonButton variant="ghost" onClick={handleClearNvidia} disabled={savingNvidia}>
+                Remover chave
+              </NeonButton>
+            )}
+          </div>
+
+          {nvidiaFeedback && (
+            <p className={`text-xs text-center mt-3 ${nvidiaFeedback.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+              {nvidiaFeedback.type === 'ok' ? '✓' : '✗'} {nvidiaFeedback.msg}
             </p>
           )}
         </GlassCard>

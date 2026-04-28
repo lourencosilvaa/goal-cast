@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, Settings, TrendingUp, ShieldCheck } from 'lucide-react';
+import { BarChart3, Settings, TrendingUp, ShieldCheck, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const navItems = [
@@ -9,7 +9,7 @@ const navItems = [
 ];
 
 export function MobileNav() {
-  const { profile } = useAuth();
+  const { profile, signOut } = useAuth();
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass border-t border-white/[0.06]"
@@ -48,6 +48,14 @@ export function MobileNav() {
             Admin
           </NavLink>
         )}
+
+        <button
+          onClick={signOut}
+          className="flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] transition-all text-white/40 hover:text-red-400"
+        >
+          <LogOut className="w-5 h-5" />
+          Sair
+        </button>
       </div>
     </nav>
   );

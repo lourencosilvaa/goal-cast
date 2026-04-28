@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -52,6 +53,61 @@ class ScrapedOdds:
             "draw": raw_d / total,
             "away": raw_a / total,
         }
+
+
+@dataclass
+class FlashScoreFixture:
+    """Enriched fixture/result data scraped from FlashScore."""
+
+    match_id: str
+    home_team: str
+    away_team: str
+    league: str
+    country: str
+    match_datetime: str
+    status: str
+    home_score: Optional[int]
+    away_score: Optional[int]
+    source_url: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "match_id": self.match_id,
+            "home_team": self.home_team,
+            "away_team": self.away_team,
+            "league": self.league,
+            "country": self.country,
+            "match_datetime": self.match_datetime,
+            "status": self.status,
+            "home_score": self.home_score,
+            "away_score": self.away_score,
+            "source_url": self.source_url,
+        }
+
+
+class BaseFixtureScraper(ABC):
+    """Abstract base class for match fixture/result scrapers."""
+
+    @abstractmethod
+    def scrape_fixtures(self, league_code: str) -> list[FlashScoreFixture]:
+        """Fetch upcoming fixtures for the given league code."""
+        ...
+
+    @abstractmethod
+    def scrape_results(self, league_code: str) -> list[FlashScoreFixture]:
+        """Fetch recent results for the given league code."""
+        ...
+
+    @abstractmethod
+    def get_available_leagues(self) -> dict[str, str]:
+        """Return available league codes and their path slugs."""
+        ...
+
+    @property
+    @abstractmethod
+    def source_name(self) -> str:
+        """The name of this data source."""
+        ...
 
 
 class BaseScraper(ABC):

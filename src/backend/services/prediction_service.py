@@ -133,9 +133,7 @@ class PredictionService:
             matches=[],
         )
 
-    def _fetch_all_from_supabase(
-        self, match_date: str
-    ) -> list[LeaguePredictions]:
+    def _fetch_all_from_supabase(self, match_date: str) -> list[LeaguePredictions]:
         """Fetch all leagues' predictions for a date in a single query."""
         results: list[LeaguePredictions] = []
         try:

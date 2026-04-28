@@ -1,0 +1,65 @@
+# Deploy the HuggingFace Space on every push to main that touches hf_space/.
+#
+# ── One-time setup ─────────────────────────────────────────────────────────────
+# 1. Create a Docker-based HF Space at huggingface.co/spaces.
+# 2. Add the following GitHub repository secrets:
+#      HF_TOKEN          — HuggingFace access token (write permission to the Space)
+#      HF_SPACE_REPO_ID  — Space repo id, e.g. "your-username/football-prediction"
+# 3. Push to main — this workflow will sync hf_space/ to the Space automatically.
+# ───────────────────────────────────────────────────────────────────────────────
+
+name: Deploy HF Space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "hf_space/**"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Push hf_space/ → HuggingFace Space
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install huggingface_hub
+        run: pip install --quiet huggingface_hub>=0.23
+
+      - name: Push hf_space/ to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_REPO_ID: ${{ secrets.HF_SPACE_REPO_ID }}
+        run: |
+          python - <<'EOF'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          repo_id = os.environ["HF_SPACE_REPO_ID"]
+
+          api.upload_folder(
+              folder_path="hf_space",
+              repo_id=repo_id,
+              repo_type="space",
+              commit_message=f"Deploy from GitHub Actions — ${{ github.sha }}",
+          )
+          print(f"Deployed to https://huggingface.co/spaces/{repo_id}")
+          EOF
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## HF Space Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Space:** \`${{ secrets.HF_SPACE_REPO_ID }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
