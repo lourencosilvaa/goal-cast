@@ -142,6 +142,10 @@ class HuggingFaceConfig(BaseModel):
     dataset_subfolder: str = "datasets"
 
 
+class SpaceConfig(BaseModel):
+    huggingface: HuggingFaceConfig
+    inference: InferenceConfig
+
 class Config(BaseModel):
     app: AppConfig
     data: DataConfig

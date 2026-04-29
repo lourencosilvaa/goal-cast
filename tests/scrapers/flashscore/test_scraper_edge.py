@@ -36,15 +36,14 @@ def _make_fixture(match_id: str = "id1") -> FlashScoreFixture:
 
 class TestFlashScoreScraperEdgeCases:
 
-    def test_scrape_fixtures_empty_parser_result_returns_empty_list(self):
+    def test_scrape_fixtures_empty_playwright_result_returns_empty_list(self):
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_fixtures.return_value = ""
+        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        parser = MagicMock()
-        parser.parse_fixtures.return_value = []
+        playwright_client.scrape_fixtures.return_value = []
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
         result = scraper.scrape_fixtures("E0")
 
         assert result == []
@@ -60,49 +59,24 @@ class TestFlashScoreScraperEdgeCases:
         with pytest.raises(FlashScoreUnavailableError):
             scraper.scrape_fixtures("E0")
 
-    def test_scrape_results_raises_unavailable_when_both_fail(self):
+    def test_scrape_results_raises_unavailable_when_playwright_fails(self):
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_results.side_effect = FlashScoreHttpError("fail")
+        http_client.fetch_results.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        playwright_client.fetch_results.side_effect = FlashScoreHttpError("fail")
-        parser = MagicMock()
+        playwright_client.scrape_results.side_effect = FlashScoreHttpError("pw fail")
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
 
         with pytest.raises(FlashScoreUnavailableError):
             scraper.scrape_results("E0")
-
-    def test_league_slug_drives_label_extraction(self):
-        config = _make_config(leagues={"SP1": "spain/laliga"})
-        http_client = MagicMock()
-        http_client.fetch_fixtures.return_value = "raw"
-        playwright_client = MagicMock()
-
-        captured: dict = {}
-
-        def capture_parse(raw, *, league, country):
-            captured["league"] = league
-            captured["country"] = country
-            return [_make_fixture()]
-
-        parser = MagicMock()
-        parser.parse_fixtures.side_effect = capture_parse
-
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
-        scraper.scrape_fixtures("SP1")
-
-        assert captured["league"] == "Laliga"
-        assert captured["country"] == "Spain"
 
     def test_http_non_flashscore_error_propagates(self):
         config = _make_config()
         http_client = MagicMock()
         http_client.fetch_fixtures.side_effect = RuntimeError("unexpected crash")
-        playwright_client = MagicMock()
-        parser = MagicMock()
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, MagicMock(), MagicMock())
 
         with pytest.raises(RuntimeError):
             scraper.scrape_fixtures("E0")
@@ -194,35 +168,6 @@ class TestFlashScoreParserEdgeCases:
         assert d["match_id"] == fixture.match_id
         assert d["status"] == fixture.status
 
-
-class TestFlashScoreHttpClientEdgeCases:
-
-    def test_token_reset_on_manual_clear(self):
-        from src.scrapers.flashscore.http_client import FlashScoreHttpClient
-        config = MagicMock()
-        config.request_timeout = 10
-        config.user_agent = "Mozilla"
-        config.base_url = "https://www.flashscore.com"
-        config.token_url = "https://www.flashscore.com"
-
-        client = FlashScoreHttpClient(config)
-        client._token = "old_token"
-        client._token = None
-        assert client._token is None
-
-    def test_headers_include_user_agent(self):
-        from src.scrapers.flashscore.http_client import FlashScoreHttpClient
-        config = MagicMock()
-        config.user_agent = "TestAgent/1.0"
-        config.base_url = "https://www.flashscore.com"
-        config.request_timeout = 5
-        config.token_url = "https://www.flashscore.com"
-        config.leagues = {}
-
-        client = FlashScoreHttpClient(config)
-        headers = client._headers()
-        assert headers["User-Agent"] == "TestAgent/1.0"
-        assert headers["Referer"] == "https://www.flashscore.com"
 
 
 class TestFlashScoreConfigIntegration:

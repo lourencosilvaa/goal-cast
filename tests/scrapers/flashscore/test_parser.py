@@ -88,11 +88,3 @@ class TestFlashScoreParser:
         assert "home_score" in d
         assert "away_score" in d
 
-    def test_extract_token_from_html(self):
-        html = '<script>var x = "signToken"; var token = "abc123xyz"; </script>'
-        token = FlashScoreParser.extract_token(html)
-        assert token == "abc123xyz"
-
-    def test_extract_token_returns_none_when_absent(self):
-        token = FlashScoreParser.extract_token("<html><body>no token here</body></html>")
-        assert token is None

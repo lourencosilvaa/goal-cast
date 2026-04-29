@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,8 +6,6 @@ from src.scrapers.base_scraper import FlashScoreFixture
 _FIELD_SEP = "\xf7"
 _ENTRY_SEP = "~"
 _RECORD_SEP = "\xac"
-
-_TOKEN_RE = re.compile(r'var\s+token\s*=\s*["\']([^"\']+)["\']')
 
 
 class FlashScoreParser:
@@ -87,8 +84,3 @@ class FlashScoreParser:
             return int(raw)
         except ValueError:
             return None
-
-    @staticmethod
-    def extract_token(html: str) -> Optional[str]:
-        match = _TOKEN_RE.search(html)
-        return match.group(1) if match else None

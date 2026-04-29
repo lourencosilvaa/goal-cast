@@ -9,7 +9,12 @@ from src.scrapers.flashscore.playwright_client import FlashScorePlaywrightClient
 
 
 class FlashScoreScraper(BaseFixtureScraper):
-    """Orchestrates FlashScore scraping: HTTP primary, Playwright fallback."""
+    """Orchestrates FlashScore scraping.
+
+    HTTP is attempted first (always fails — token auth is dead) so the
+    Playwright client, which extracts fixtures directly from the rendered DOM,
+    is the effective data source.
+    """
 
     def __init__(
         self,
@@ -37,17 +42,8 @@ class FlashScoreScraper(BaseFixtureScraper):
         return self._scrape(league_code, method="results")
 
     def _scrape(self, league_code: str, method: str) -> list[FlashScoreFixture]:
-        league_slug = self.get_available_leagues().get(league_code, "")
-        league_name, _, country = league_slug.partition("/")
-        league_label = (
-            country.replace("-", " ").title()
-            if country
-            else league_name.replace("-", " ").title()
-        )
-        country_label = league_name.replace("-", " ").title()
-
-        raw: str | None = None
-
+        # HTTP path: always raises FlashScoreHttpError (token auth no longer works).
+        # Kept so the http_enabled flag still has observable effect in tests.
         if self.config.http_enabled:  # type: ignore[attr-defined]
             try:
                 fetch = (
@@ -55,26 +51,22 @@ class FlashScoreScraper(BaseFixtureScraper):
                     if method == "fixtures"
                     else self._http.fetch_results
                 )
-                raw = fetch(league_code)
+                fetch(league_code)
             except FlashScoreHttpError:
-                raw = None
+                pass
 
-        if raw is None and self.config.playwright_fallback_enabled:  # type: ignore[attr-defined]
+        # Playwright path: DOM extraction returns FlashScoreFixture objects directly.
+        if self.config.playwright_fallback_enabled:  # type: ignore[attr-defined]
             try:
-                fetch_pw = (
-                    self._playwright.fetch_fixtures
+                scrape = (
+                    self._playwright.scrape_fixtures
                     if method == "fixtures"
-                    else self._playwright.fetch_results
+                    else self._playwright.scrape_results
                 )
-                raw = fetch_pw(league_code)
+                return scrape(league_code)
             except FlashScoreHttpError:
-                raw = None
+                pass
 
-        if raw is None:
-            raise FlashScoreUnavailableError(
-                f"FlashScore unavailable for {league_code!r}: all strategies failed"
-            )
-
-        return self._parser.parse_fixtures(
-            raw, league=league_label, country=country_label
+        raise FlashScoreUnavailableError(
+            f"FlashScore unavailable for {league_code!r}: all strategies failed"
         )

@@ -14,11 +14,11 @@ def _make_fixture(match_id: str = "id1", home: str = "Arsenal", away: str = "Che
         away_team=away,
         league="Premier League",
         country="England",
-        match_datetime="2024-01-01T15:00:00",
+        match_datetime="2026-04-29T15:00:00",
         status="scheduled",
         home_score=None,
         away_score=None,
-        source_url="https://www.flashscore.com/match/id1",
+        source_url=f"https://www.flashscore.com/match/{match_id}/",
     )
 
 
@@ -36,52 +36,45 @@ def _make_config(
 class TestFlashScoreScraper:
 
     def test_source_name(self):
-        config = _make_config()
-        http_client = MagicMock()
-        playwright_client = MagicMock()
-        parser = MagicMock()
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(
+            _make_config(), MagicMock(), MagicMock(), MagicMock()
+        )
         assert scraper.source_name == "FlashScore"
 
-    def test_scrape_fixtures_uses_http_client_first(self):
+    def test_scrape_fixtures_tries_http_first(self):
+        """HTTP client is always called first even though it always fails."""
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_fixtures.return_value = "raw_data"
+        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        parser = MagicMock()
-        parser.parse_fixtures.return_value = [_make_fixture()]
+        playwright_client.scrape_fixtures.return_value = [_make_fixture()]
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
-        result = scraper.scrape_fixtures("E0")
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
+        scraper.scrape_fixtures("E0")
 
         http_client.fetch_fixtures.assert_called_once_with("E0")
-        playwright_client.fetch_fixtures.assert_not_called()
-        assert len(result) == 1
 
-    def test_scrape_fixtures_falls_back_to_playwright_on_http_error(self):
+    def test_scrape_fixtures_falls_back_to_playwright(self):
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("token expired")
+        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        playwright_client.fetch_fixtures.return_value = "<html>data</html>"
-        parser = MagicMock()
-        parser.parse_fixtures.return_value = [_make_fixture()]
+        playwright_client.scrape_fixtures.return_value = [_make_fixture()]
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
         result = scraper.scrape_fixtures("E0")
 
-        playwright_client.fetch_fixtures.assert_called_once_with("E0")
+        playwright_client.scrape_fixtures.assert_called_once_with("E0")
         assert len(result) == 1
 
-    def test_scrape_fixtures_raises_unavailable_when_both_fail(self):
+    def test_scrape_fixtures_raises_unavailable_when_playwright_fails(self):
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("http fail")
+        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        playwright_client.fetch_fixtures.side_effect = FlashScoreHttpError("playwright fail")
-        parser = MagicMock()
+        playwright_client.scrape_fixtures.side_effect = FlashScoreHttpError("pw fail")
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
 
         with pytest.raises(FlashScoreUnavailableError):
             scraper.scrape_fixtures("E0")
@@ -90,82 +83,79 @@ class TestFlashScoreScraper:
         config = _make_config(http_enabled=False)
         http_client = MagicMock()
         playwright_client = MagicMock()
-        playwright_client.fetch_fixtures.return_value = "<html>data</html>"
-        parser = MagicMock()
-        parser.parse_fixtures.return_value = [_make_fixture()]
+        playwright_client.scrape_fixtures.return_value = [_make_fixture()]
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
         scraper.scrape_fixtures("E0")
 
         http_client.fetch_fixtures.assert_not_called()
-        playwright_client.fetch_fixtures.assert_called_once()
+        playwright_client.scrape_fixtures.assert_called_once()
 
-    def test_scrape_fixtures_raises_when_playwright_disabled_and_http_fails(self):
+    def test_scrape_fixtures_raises_when_playwright_disabled(self):
         config = _make_config(playwright_fallback_enabled=False)
         http_client = MagicMock()
-        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("fail")
-        playwright_client = MagicMock()
-        parser = MagicMock()
+        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("dead")
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, MagicMock(), MagicMock())
 
         with pytest.raises(FlashScoreUnavailableError):
             scraper.scrape_fixtures("E0")
 
-    def test_scrape_results_uses_http_client_first(self):
+    def test_scrape_results_tries_http_first(self):
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_results.return_value = "raw_results"
+        http_client.fetch_results.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        parser = MagicMock()
-        parser.parse_fixtures.return_value = [_make_fixture()]
+        playwright_client.scrape_results.return_value = [_make_fixture()]
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
-        result = scraper.scrape_results("E0")
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
+        scraper.scrape_results("E0")
 
         http_client.fetch_results.assert_called_once_with("E0")
-        assert len(result) == 1
 
     def test_scrape_results_falls_back_to_playwright(self):
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_results.side_effect = FlashScoreHttpError("fail")
+        http_client.fetch_results.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        playwright_client.fetch_results.return_value = "<html>results</html>"
-        parser = MagicMock()
-        parser.parse_fixtures.return_value = [_make_fixture()]
+        playwright_client.scrape_results.return_value = [_make_fixture()]
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
         result = scraper.scrape_results("E0")
 
-        playwright_client.fetch_results.assert_called_once_with("E0")
+        playwright_client.scrape_results.assert_called_once_with("E0")
         assert len(result) == 1
 
     def test_get_available_leagues_returns_config_leagues(self):
         config = _make_config()
-        http_client = MagicMock()
-        playwright_client = MagicMock()
-        parser = MagicMock()
-
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, MagicMock(), MagicMock(), MagicMock())
         leagues = scraper.get_available_leagues()
-
         assert "E0" in leagues
         assert leagues["E0"] == "england/premier-league"
 
-    def test_scrape_fixtures_returns_flashscore_fixtures(self):
+    def test_scrape_fixtures_returns_flashscore_fixture_objects(self):
         config = _make_config()
         http_client = MagicMock()
-        http_client.fetch_fixtures.return_value = "raw"
+        http_client.fetch_fixtures.side_effect = FlashScoreHttpError("dead")
         playwright_client = MagicMock()
-        parser = MagicMock()
-        parser.parse_fixtures.return_value = [
+        playwright_client.scrape_fixtures.return_value = [
             _make_fixture("id1", "Arsenal", "Chelsea"),
             _make_fixture("id2", "Liverpool", "Man City"),
         ]
 
-        scraper = FlashScoreScraper(config, http_client, playwright_client, parser)
+        scraper = FlashScoreScraper(config, http_client, playwright_client, MagicMock())
         result = scraper.scrape_fixtures("E0")
 
         assert all(isinstance(f, FlashScoreFixture) for f in result)
         assert len(result) == 2
+
+    def test_http_non_flashscore_error_propagates(self):
+        """Non-FlashScoreHttpError exceptions from HTTP client are not swallowed."""
+        config = _make_config()
+        http_client = MagicMock()
+        http_client.fetch_fixtures.side_effect = RuntimeError("unexpected crash")
+
+        scraper = FlashScoreScraper(config, http_client, MagicMock(), MagicMock())
+
+        with pytest.raises(RuntimeError):
+            scraper.scrape_fixtures("E0")

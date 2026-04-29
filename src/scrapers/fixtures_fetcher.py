@@ -234,10 +234,22 @@ def _build_flashscore_scraper() -> "BaseFixtureScraper":
 
     cfg = load_config()
     fs_cfg = cfg.scrapers.flashscore
-    http_client = FlashScoreHttpClient(fs_cfg)
-    pw_client = FlashScorePlaywrightClient(fs_cfg)
-    parser = FlashScoreParser()
-    return FlashScoreScraper(fs_cfg, http_client, pw_client, parser)
+
+    class _MergedConfig:
+        base_url = fs_cfg.base_url
+        http_enabled = fs_cfg.http_enabled
+        playwright_fallback_enabled = fs_cfg.playwright_fallback_enabled
+        leagues = fs_cfg.leagues
+        user_agent = cfg.scrapers.user_agent
+        request_timeout = cfg.scrapers.request_timeout
+
+    merged = _MergedConfig()
+    return FlashScoreScraper(
+        merged,
+        FlashScoreHttpClient(merged),
+        FlashScorePlaywrightClient(merged),
+        FlashScoreParser(),
+    )
 
 
 def _fetch_flashscore_fixtures(
