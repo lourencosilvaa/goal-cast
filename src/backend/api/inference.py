@@ -22,6 +22,21 @@ class InferenceResponse(BaseModel):
     league_code: str | None
 
 
+class CustomPredictRequest(BaseModel):
+    home_team: str
+    away_team: str
+    league_code: str
+
+
+class CustomPredictResponse(BaseModel):
+    home_team: str
+    away_team: str
+    predicted_outcome: str
+    confidence: float
+    probabilities: dict[str, float]
+    league: str
+
+
 @router.post("/infer", response_model=InferenceResponse)
 async def run_inference(
     user_id: Annotated[str, Depends(get_current_user)],
@@ -42,3 +57,23 @@ async def run_inference(
         date=date or "",
         league_code=league_code,
     )
+
+
+@router.post("/custom", response_model=CustomPredictResponse)
+async def predict_custom(
+    body: CustomPredictRequest,
+    user_id: Annotated[str, Depends(get_current_user)],
+    inference_svc: Annotated[InferenceService, Depends(get_inference_service)],
+) -> CustomPredictResponse:
+    """Run a one-off ML prediction for any chosen home/away team pair."""
+    try:
+        result = inference_svc.predict_custom(
+            home_team=body.home_team,
+            away_team=body.away_team,
+            league_code=body.league_code,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        )
+    return CustomPredictResponse(**result)

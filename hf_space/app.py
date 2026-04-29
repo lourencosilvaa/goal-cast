@@ -56,6 +56,11 @@ def _download_model(config: SpaceConfig) -> Path:
     from huggingface_hub import snapshot_download
 
     repo_id = config.huggingface.repo_id
+    if not repo_id:
+        raise RuntimeError(
+            "HF_REPO_ID environment variable is not set. "
+            "Set it in the HuggingFace Space secrets/environment variables."
+        )
     hf_token = config.huggingface.hf_token or None
     local_dir = Path(config.huggingface.local_dir)
     path = snapshot_download(repo_id=repo_id, token=hf_token, local_dir=local_dir)
@@ -69,6 +74,21 @@ class InferRequest(BaseModel):
 
 class InferResponse(BaseModel):
     predictions: list[dict[str, Any]]
+
+
+class CustomPredictRequest(BaseModel):
+    home_team: str
+    away_team: str
+    league_code: str
+
+
+class CustomPredictResponse(BaseModel):
+    home_team: str
+    away_team: str
+    predicted_outcome: str
+    confidence: float
+    probabilities: dict[str, float]
+    league: str
 
 
 @app.get("/health")
@@ -105,6 +125,45 @@ def infer(req: InferRequest) -> InferResponse:
             continue
 
     return InferResponse(predictions=results)
+
+
+@app.post("/predict-custom", response_model=CustomPredictResponse)
+def predict_custom(req: CustomPredictRequest) -> CustomPredictResponse:
+    """Predict a single matchup for any two teams, using league averages for unknowns."""
+    if _PREDICTOR is None or _CONFIG is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    league_name = DIVISION_MAP.get(req.league_code, req.league_code)
+    historical_df = _load_historical_data(_CONFIG)
+    enriched = _engineer_features(historical_df, _CONFIG)
+
+    fixture = {
+        "home_team": req.home_team,
+        "away_team": req.away_team,
+        "league": league_name,
+        "division": req.league_code,
+    }
+    features = _build_features(fixture, enriched)
+    feature_df = pd.DataFrame([features])
+
+    try:
+        preds = _PREDICTOR.predict(feature_df)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}")
+
+    if not preds:
+        raise HTTPException(status_code=500, detail="Model returned no prediction")
+
+    p = preds[0]
+    d = p.to_dict()
+    return CustomPredictResponse(
+        home_team=req.home_team,
+        away_team=req.away_team,
+        predicted_outcome=d.get("predicted_outcome", ""),
+        confidence=float(d.get("confidence", 0.0)),
+        probabilities=d.get("probabilities", {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}),
+        league=league_name,
+    )
 
 
 def _fetch_fixtures(
@@ -173,14 +232,43 @@ def _build_features(
         "HomeTeam": fixture["home_team"],
         "AwayTeam": fixture["away_team"],
     }
-    if not enriched.empty:
-        home_rows = enriched[enriched["HomeTeam"] == fixture["home_team"]]
-        if not home_rows.empty:
-            last = home_rows.iloc[-1]
-            for col in enriched.columns:
-                if col not in ("HomeTeam", "AwayTeam", "FTR", "Date"):
-                    try:
-                        features[col] = float(last[col])
-                    except (TypeError, ValueError):
-                        pass
+    if enriched.empty:
+        return features
+
+    league_avg = enriched.mean(numeric_only=True)
+
+    home_rows = enriched[
+        (enriched["HomeTeam"] == fixture["home_team"])
+        | (enriched["AwayTeam"] == fixture["home_team"])
+    ]
+    away_rows = enriched[
+        (enriched["HomeTeam"] == fixture["away_team"])
+        | (enriched["AwayTeam"] == fixture["away_team"])
+    ]
+
+    home_last = home_rows.iloc[-1] if not home_rows.empty else league_avg
+    away_last = away_rows.iloc[-1] if not away_rows.empty else league_avg
+    home_was_home = home_last.get("HomeTeam", "") == fixture["home_team"]
+    away_was_away = away_last.get("AwayTeam", "") == fixture["away_team"]
+
+    numeric_cols = [
+        c for c in enriched.columns
+        if c not in ("HomeTeam", "AwayTeam", "FTR", "Date")
+    ]
+    for col in numeric_cols:
+        if col.startswith("home_"):
+            src = home_last if home_was_home else away_last
+            opposite = "away_" + col[5:]
+            val = src.get(col if home_was_home else opposite, 0)
+        elif col.startswith("away_"):
+            src = away_last if away_was_away else home_last
+            opposite = "home_" + col[5:]
+            val = src.get(col if away_was_away else opposite, 0)
+        else:
+            val = home_last.get(col, league_avg.get(col, 0))
+        try:
+            features[col] = float(val) if pd.notna(val) else 0.0
+        except (TypeError, ValueError):
+            features[col] = 0.0
+
     return features

@@ -36,7 +36,8 @@ class TestFlashScoreFallbackEdgeCases:
     @patch("src.scrapers.fixtures_fetcher._build_flashscore_scraper")
     def test_short_datetime_gives_empty_time(self, mock_build):
         mock_scraper = MagicMock()
-        mock_scraper.scrape_fixtures.return_value = [_make_fs_fixture(dt="")]
+        # datetime too short to extract HH:MM but still matches the target date
+        mock_scraper.scrape_fixtures.return_value = [_make_fs_fixture(dt="2024-04-28")]
         mock_build.return_value = mock_scraper
 
         result = _fetch_flashscore_fixtures("28/04/2024", leagues=["E0"])
@@ -46,11 +47,10 @@ class TestFlashScoreFallbackEdgeCases:
     @patch("src.scrapers.fixtures_fetcher._build_flashscore_scraper")
     def test_unknown_league_code_uses_flashscore_league_name(self, mock_build):
         mock_scraper = MagicMock()
-        fs = _make_fs_fixture()
         fs = FlashScoreFixture(
             match_id="id1", home_team="Arsenal", away_team="Chelsea",
             league="Bundesliga", country="Germany",
-            match_datetime="", status="scheduled",
+            match_datetime="2024-04-28T15:00:00", status="scheduled",
             home_score=None, away_score=None,
             source_url="",
         )

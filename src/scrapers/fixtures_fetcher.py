@@ -264,11 +264,18 @@ def _fetch_flashscore_fixtures(
         if leagues is None:
             leagues = list(scraper.get_available_leagues().keys())  # type: ignore[union-attr]
 
+        target_dt = datetime.strptime(target_date, "%d/%m/%Y").date()
         fixtures: list[Fixture] = []
         for league_code in leagues:
             try:
                 fs_fixtures = scraper.scrape_fixtures(league_code)  # type: ignore[union-attr]
                 for fs in fs_fixtures:
+                    try:
+                        fixture_dt = datetime.fromisoformat(fs.match_datetime).date()
+                    except Exception:
+                        fixture_dt = None
+                    if fixture_dt != target_dt:
+                        continue
                     league_name = DIVISION_MAP.get(league_code, fs.league)
                     fixtures.append(
                         Fixture(

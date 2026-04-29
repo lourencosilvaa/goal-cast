@@ -94,6 +94,9 @@ def _predict_fixture(fixture, featured_data, predictor):
     home = fixture.home_team
     away = fixture.away_team
 
+    if featured_data.empty:
+        return _predict_from_odds(fixture)
+
     home_rows = featured_data[
         (featured_data["HomeTeam"] == home) | (featured_data["AwayTeam"] == home)
     ]
@@ -101,14 +104,15 @@ def _predict_fixture(fixture, featured_data, predictor):
         (featured_data["HomeTeam"] == away) | (featured_data["AwayTeam"] == away)
     ]
 
-    if home_rows.empty or away_rows.empty:
-        return _predict_from_odds(fixture)
+    league_avg = featured_data.mean(numeric_only=True)
+    home_from_avg = home_rows.empty
+    away_from_avg = away_rows.empty
+    last_home_row = home_rows.iloc[-1] if not home_from_avg else league_avg
+    last_away_row = away_rows.iloc[-1] if not away_from_avg else league_avg
 
-    last_home_row = home_rows.iloc[-1]
-    last_away_row = away_rows.iloc[-1]
-
-    home_was_home = last_home_row.get("HomeTeam") == home
-    away_was_away = last_away_row.get("AwayTeam") == away
+    # When using league averages, treat as if the team is playing in expected position
+    home_was_home = home_from_avg or last_home_row.get("HomeTeam", "") == home
+    away_was_away = away_from_avg or last_away_row.get("AwayTeam", "") == away
 
     def _get(row, was_expected, expected, opposite):
         val = row.get(expected if was_expected else opposite, 0)

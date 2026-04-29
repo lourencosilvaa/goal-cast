@@ -171,6 +171,33 @@ export async function runInference(
   return data.predictions as InferencePrediction[];
 }
 
+export interface CustomPrediction {
+  home_team: string;
+  away_team: string;
+  predicted_outcome: string;
+  confidence: number;
+  probabilities: { home_win: number; draw: number; away_win: number };
+  league: string;
+}
+
+export async function predictCustom(
+  homeTeam: string,
+  awayTeam: string,
+  leagueCode: string,
+): Promise<CustomPrediction> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/predictions/custom`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ home_team: homeTeam, away_team: awayTeam, league_code: leagueCode }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Prediction failed' }));
+    throw new Error(err.detail || 'Prediction failed');
+  }
+  return res.json() as Promise<CustomPrediction>;
+}
+
 // ── Retrain status ────────────────────────────────────────────────────────────
 
 export async function fetchRetrainStatus(): Promise<boolean> {

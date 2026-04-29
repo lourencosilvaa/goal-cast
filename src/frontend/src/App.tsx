@@ -9,6 +9,7 @@ import { ValueBetsPage } from '@/pages/ValueBets';
 import { SettingsPage } from '@/pages/Settings';
 import { LoginPage } from '@/pages/Login';
 import { AdminPage } from '@/pages/Admin';
+import { CustomPredictPage } from '@/pages/CustomPredict';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
         >
           <Route index element={<Dashboard />} />
           <Route path="value-bets" element={<ValueBetsPage />} />
+          <Route path="custom-predict" element={<CustomPredictPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="admin"
