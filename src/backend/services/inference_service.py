@@ -11,6 +11,20 @@ class InferenceService:
     def __init__(self, config: Any) -> None:
         self.config = config
 
+    def _space_url(self) -> str:
+        url = self.config.inference.space_url.rstrip("/")
+        if not url:
+            raise RuntimeError(
+                "HF Space URL is not configured. Set the HF_SPACE_URL environment variable."
+            )
+        return url
+
+    def _headers(self) -> dict[str, str]:
+        token = getattr(self.config.huggingface, "hf_token", "")
+        if token:
+            return {"Authorization": f"Bearer {token}"}
+        return {}
+
     def run(
         self,
         target_date: str | None = None,
@@ -19,14 +33,10 @@ class InferenceService:
         if not self.config.inference.enabled:
             raise RuntimeError("On-demand inference is disabled in configuration")
 
-        space_url = self.config.inference.space_url.rstrip("/")
-        if not space_url:
-            raise RuntimeError(
-                "HF Space URL is not configured. Set the HF_SPACE_URL environment variable."
-            )
         response = requests.post(
-            f"{space_url}/infer",
+            f"{self._space_url()}/infer",
             json={"date": target_date, "league_codes": league_codes},
+            headers=self._headers(),
             timeout=120,
         )
         response.raise_for_status()
@@ -42,18 +52,14 @@ class InferenceService:
         if not self.config.inference.enabled:
             raise RuntimeError("On-demand inference is disabled in configuration")
 
-        space_url = self.config.inference.space_url.rstrip("/")
-        if not space_url:
-            raise RuntimeError(
-                "HF Space URL is not configured. Set the HF_SPACE_URL environment variable."
-            )
         response = requests.post(
-            f"{space_url}/predict-custom",
+            f"{self._space_url()}/predict-custom",
             json={
                 "home_team": home_team,
                 "away_team": away_team,
                 "league_code": league_code,
             },
+            headers=self._headers(),
             timeout=120,
         )
         response.raise_for_status()
