@@ -1,7 +1,9 @@
 """On-demand inference endpoint: runs the HF model directly for a given date."""
 
+from pathlib import Path
 from typing import Annotated, Any
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
@@ -9,6 +11,26 @@ from src.backend.core.auth import get_current_user
 from src.backend.services.inference_service import InferenceService
 
 router = APIRouter(prefix="/api/predictions", tags=["inference"])
+
+_LEAGUE_CODES = ["E0", "SP1", "D1", "I1", "F1", "P1"]
+_CACHE_DIR = Path("datasets/cache")
+
+
+def _load_teams_from_cache() -> dict[str, list[str]]:
+    """Load teams from local CSV cache for the latest season."""
+    result: dict[str, list[str]] = {}
+    for league in _LEAGUE_CODES:
+        # Find latest season file for this league
+        files = sorted(_CACHE_DIR.glob(f"*_{league}.csv"), reverse=True)
+        if not files:
+            continue
+        try:
+            df = pd.read_csv(files[0], encoding="utf-8", usecols=["HomeTeam", "AwayTeam"])
+            teams = sorted(set(df["HomeTeam"].unique()) | set(df["AwayTeam"].unique()))
+            result[league] = teams
+        except Exception:
+            continue
+    return result
 
 
 def get_inference_service(request: Request) -> InferenceService:
@@ -77,3 +99,16 @@ async def predict_custom(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         )
     return CustomPredictResponse(**result)
+
+
+@router.get("/teams")
+async def get_teams(
+    user_id: Annotated[str, Depends(get_current_user)],
+    inference_svc: Annotated[InferenceService, Depends(get_inference_service)],
+) -> dict[str, list[str]]:
+    """Return available team names grouped by league code."""
+    try:
+        return await inference_svc.get_teams()
+    except Exception:
+        # Fallback: load teams from local CSV cache
+        return _load_teams_from_cache()

@@ -12,7 +12,7 @@ class InferenceService:
         self.config = config
 
     def _space_url(self) -> str:
-        url = self.config.inference.space_url.rstrip("/")
+        url: str = self.config.inference.space_url.rstrip("/")
         if not url:
             raise RuntimeError(
                 "HF Space URL is not configured. Set the HF_SPACE_URL environment variable."
@@ -56,4 +56,14 @@ class InferenceService:
             )
         response.raise_for_status()
         result: dict[str, Any] = response.json()
+        return result
+
+    async def get_teams(self) -> dict[str, list[str]]:
+        if not self.config.inference.enabled:
+            raise RuntimeError("On-demand inference is disabled in configuration")
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(f"{self._space_url()}/teams")
+        response.raise_for_status()
+        result: dict[str, list[str]] = response.json()
         return result

@@ -198,6 +198,13 @@ export async function predictCustom(
   return res.json() as Promise<CustomPrediction>;
 }
 
+export async function fetchTeams(): Promise<Record<string, string[]>> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/predictions/teams`, { headers });
+  if (!res.ok) throw new Error('Failed to fetch teams');
+  return res.json() as Promise<Record<string, string[]>>;
+}
+
 // ── Retrain status ────────────────────────────────────────────────────────────
 
 export async function fetchRetrainStatus(): Promise<boolean> {

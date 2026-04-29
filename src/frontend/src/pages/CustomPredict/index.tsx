@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Wand2, Loader2 } from 'lucide-react';
+import { Wand2, Loader2, ChevronDown } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
-import { predictCustom, type CustomPrediction } from '@/lib/api';
+import { predictCustom, fetchTeams, type CustomPrediction } from '@/lib/api';
 
 const LEAGUES = [
   { code: 'E0', name: 'Premier League', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
@@ -45,6 +45,90 @@ function ProbBar({ label, value, color }: { label: string; value: number; color:
   );
 }
 
+function TeamCombobox({
+  label,
+  value,
+  onChange,
+  teams,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  teams: string[];
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  const filtered = teams.filter((t) =>
+    t.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  const handleClickOutside = useCallback((e: MouseEvent) => {
+    if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [handleClickOutside]);
+
+  const inputClass =
+    'w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-white/90 placeholder-white/20 focus:outline-none focus:border-green-500/40 transition-colors text-sm';
+
+  return (
+    <div className="space-y-1.5" ref={ref}>
+      <label className="text-xs text-white/40 font-medium uppercase tracking-wide">
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          value={open ? query : value}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (!open) setOpen(true);
+          }}
+          onFocus={() => {
+            setOpen(true);
+            setQuery('');
+          }}
+          placeholder={placeholder}
+          className={inputClass}
+        />
+        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 pointer-events-none" />
+        {open && filtered.length > 0 && (
+          <div className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-xl bg-[#1a1a2e] border border-white/[0.08] shadow-xl">
+            {filtered.map((team) => (
+              <button
+                key={team}
+                type="button"
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-white/[0.06] transition-colors ${
+                  team === value ? 'text-green-400' : 'text-white/80'
+                }`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(team);
+                  setQuery('');
+                  setOpen(false);
+                }}
+              >
+                {team}
+              </button>
+            ))}
+          </div>
+        )}
+        {open && filtered.length === 0 && query && (
+          <div className="absolute z-50 mt-1 w-full rounded-xl bg-[#1a1a2e] border border-white/[0.08] shadow-xl px-4 py-3">
+            <p className="text-xs text-white/30">Nenhuma equipa encontrada</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function CustomPredictPage() {
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
@@ -52,6 +136,23 @@ export function CustomPredictPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CustomPrediction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [teamsByLeague, setTeamsByLeague] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    fetchTeams()
+      .then(setTeamsByLeague)
+      .catch(() => {});
+  }, []);
+
+  const currentTeams = teamsByLeague[leagueCode] ?? [];
+
+  function handleLeagueChange(code: string) {
+    setLeagueCode(code);
+    setHomeTeam('');
+    setAwayTeam('');
+    setResult(null);
+    setError(null);
+  }
 
   async function handlePredict() {
     if (!homeTeam.trim() || !awayTeam.trim()) return;
@@ -81,40 +182,13 @@ export function CustomPredictPage() {
       </div>
 
       <GlassCard className="space-y-5">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs text-white/40 font-medium uppercase tracking-wide">
-              Equipa Casa
-            </label>
-            <input
-              value={homeTeam}
-              onChange={(e) => setHomeTeam(e.target.value)}
-              placeholder="ex: Sporting CP"
-              className={inputClass}
-              onKeyDown={(e) => e.key === 'Enter' && handlePredict()}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs text-white/40 font-medium uppercase tracking-wide">
-              Equipa Fora
-            </label>
-            <input
-              value={awayTeam}
-              onChange={(e) => setAwayTeam(e.target.value)}
-              placeholder="ex: Tondela"
-              className={inputClass}
-              onKeyDown={(e) => e.key === 'Enter' && handlePredict()}
-            />
-          </div>
-        </div>
-
         <div className="space-y-1.5">
           <label className="text-xs text-white/40 font-medium uppercase tracking-wide">
             Liga
           </label>
           <select
             value={leagueCode}
-            onChange={(e) => setLeagueCode(e.target.value)}
+            onChange={(e) => handleLeagueChange(e.target.value)}
             className={`${inputClass} cursor-pointer`}
           >
             {LEAGUES.map((l) => (
@@ -123,6 +197,23 @@ export function CustomPredictPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <TeamCombobox
+            label="Equipa Casa"
+            value={homeTeam}
+            onChange={setHomeTeam}
+            teams={currentTeams.filter((t) => t !== awayTeam)}
+            placeholder="Selecionar..."
+          />
+          <TeamCombobox
+            label="Equipa Fora"
+            value={awayTeam}
+            onChange={setAwayTeam}
+            teams={currentTeams.filter((t) => t !== homeTeam)}
+            placeholder="Selecionar..."
+          />
         </div>
 
         <NeonButton
