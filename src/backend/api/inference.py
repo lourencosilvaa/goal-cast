@@ -47,7 +47,7 @@ async def run_inference(
     """Run on-demand ML predictions against the HuggingFace-hosted model."""
     league_codes = [league_code] if league_code else None
     try:
-        predictions = inference_svc.run(target_date=date, league_codes=league_codes)
+        predictions = await inference_svc.run(target_date=date, league_codes=league_codes)
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
@@ -67,7 +67,7 @@ async def predict_custom(
 ) -> CustomPredictResponse:
     """Run a one-off ML prediction for any chosen home/away team pair."""
     try:
-        result = inference_svc.predict_custom(
+        result = await inference_svc.predict_custom(
             home_team=body.home_team,
             away_team=body.away_team,
             league_code=body.league_code,

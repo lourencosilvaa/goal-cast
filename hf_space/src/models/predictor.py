@@ -47,8 +47,8 @@ class MatchPredictor:
 
     def predict(self, features: pd.DataFrame) -> list[MatchPrediction]:
         """Predict outcomes for one or more matches."""
-        available = [c for c in self.feature_names if c in features.columns]
-        X = features[available].fillna(0)
+        # Ensure all expected features are present, filling missing ones with 0
+        X = features.reindex(columns=self.feature_names, fill_value=0).fillna(0)
 
         X_scaled = self.scaler.transform(X)
         probas = self.ensemble.predict_proba(X_scaled)

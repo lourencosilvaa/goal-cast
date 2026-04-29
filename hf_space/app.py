@@ -19,7 +19,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from config.config_loader import SpaceConfig, load_config
+from src.models.data_cleaner import DataCleaner
 from src.models.data_loader import FootballDataLoader
+from src.models.elo import FootballELO
 from src.models.feature_engineer import FeatureEngineer
 from src.models.predictor import MatchPredictor
 
@@ -210,7 +212,11 @@ def _download_fixtures_csv() -> str:
 def _load_historical_data(config: SpaceConfig) -> pd.DataFrame:
     try:
         loader = FootballDataLoader(config.data, config.huggingface)
-        return loader.load_all()
+        df = loader.load_all()
+        if not df.empty:
+            cleaner = DataCleaner()
+            df = cleaner.clean(df)
+        return df
     except Exception:
         return pd.DataFrame()
 
@@ -220,7 +226,10 @@ def _engineer_features(df: pd.DataFrame, config: SpaceConfig) -> pd.DataFrame:
         return df
     try:
         fe = FeatureEngineer(config.features)
-        return fe.build_all_features(df)
+        df = fe.build_all_features(df)
+        elo = FootballELO(config.features.elo)
+        df = elo.compute_elo_features(df)
+        return df
     except Exception:
         return pd.DataFrame()
 
