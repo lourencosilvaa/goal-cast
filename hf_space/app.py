@@ -27,6 +27,7 @@ from src.models.predictor import MatchPredictor
 
 _PREDICTOR: MatchPredictor | None = None
 _CONFIG: SpaceConfig | None = None
+_ENRICHED_DATA: pd.DataFrame | None = None
 
 _FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 _FIXTURES_CACHE = Path("/tmp/fixtures.csv")
@@ -44,10 +45,13 @@ DIVISION_MAP = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _PREDICTOR, _CONFIG
+    global _PREDICTOR, _CONFIG, _ENRICHED_DATA
     _CONFIG = load_config()
     model_dir = _download_model(_CONFIG)
     _PREDICTOR = MatchPredictor(model_dir)
+    # Pre-compute enriched features once at startup
+    historical_df = _load_historical_data(_CONFIG)
+    _ENRICHED_DATA = _engineer_features(historical_df, _CONFIG)
     yield
 
 
@@ -100,7 +104,7 @@ def health() -> dict[str, Any]:
 
 @app.post("/infer", response_model=InferResponse)
 def infer(req: InferRequest) -> InferResponse:
-    if _PREDICTOR is None or _CONFIG is None:
+    if _PREDICTOR is None or _CONFIG is None or _ENRICHED_DATA is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     target_date = req.date or datetime.now().strftime("%d/%m/%Y")
@@ -108,8 +112,7 @@ def infer(req: InferRequest) -> InferResponse:
     if not fixtures:
         return InferResponse(predictions=[])
 
-    historical_df = _load_historical_data(_CONFIG)
-    enriched = _engineer_features(historical_df, _CONFIG)
+    enriched = _ENRICHED_DATA
 
     results: list[dict[str, Any]] = []
     for fixture in fixtures:
@@ -132,12 +135,11 @@ def infer(req: InferRequest) -> InferResponse:
 @app.post("/predict-custom", response_model=CustomPredictResponse)
 def predict_custom(req: CustomPredictRequest) -> CustomPredictResponse:
     """Predict a single matchup for any two teams, using league averages for unknowns."""
-    if _PREDICTOR is None or _CONFIG is None:
+    if _PREDICTOR is None or _CONFIG is None or _ENRICHED_DATA is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     league_name = DIVISION_MAP.get(req.league_code, req.league_code)
-    historical_df = _load_historical_data(_CONFIG)
-    enriched = _engineer_features(historical_df, _CONFIG)
+    enriched = _ENRICHED_DATA
 
     fixture = {
         "home_team": req.home_team,
