@@ -28,6 +28,7 @@ from src.models.predictor import MatchPredictor
 _PREDICTOR: MatchPredictor | None = None
 _CONFIG: SpaceConfig | None = None
 _ENRICHED_DATA: pd.DataFrame | None = None
+_TEAMS_BY_LEAGUE: dict[str, list[str]] = {}
 
 _FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 _FIXTURES_CACHE = Path("/tmp/fixtures.csv")
@@ -45,12 +46,14 @@ DIVISION_MAP = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _PREDICTOR, _CONFIG, _ENRICHED_DATA
+    global _PREDICTOR, _CONFIG, _ENRICHED_DATA, _TEAMS_BY_LEAGUE
     _CONFIG = load_config()
     model_dir = _download_model(_CONFIG)
     _PREDICTOR = MatchPredictor(model_dir)
     # Pre-compute enriched features once at startup
     historical_df = _load_historical_data(_CONFIG)
+    # Extract teams per league from raw data before enrichment
+    _TEAMS_BY_LEAGUE = _extract_teams_by_league(historical_df)
     _ENRICHED_DATA = _engineer_features(historical_df, _CONFIG)
     yield
 
@@ -105,24 +108,7 @@ def health() -> dict[str, Any]:
 @app.get("/teams")
 def get_teams() -> dict[str, list[str]]:
     """Return available team names grouped by league code."""
-    if _ENRICHED_DATA is None or _ENRICHED_DATA.empty:
-        return {}
-    result: dict[str, list[str]] = {}
-    if "League" not in _ENRICHED_DATA.columns:
-        # Fallback: return all teams ungrouped
-        all_teams = sorted(
-            set(_ENRICHED_DATA["HomeTeam"].unique()) | set(_ENRICHED_DATA["AwayTeam"].unique())
-        )
-        for code in DIVISION_MAP:
-            result[code] = all_teams
-        return result
-    league_name_to_code = {v: k for k, v in DIVISION_MAP.items()}
-    for league_name, group in _ENRICHED_DATA.groupby("League"):
-        code = league_name_to_code.get(str(league_name))
-        if code:
-            teams = sorted(set(group["HomeTeam"].unique()) | set(group["AwayTeam"].unique()))
-            result[code] = teams
-    return result
+    return _TEAMS_BY_LEAGUE
 
 
 @app.post("/infer", response_model=InferResponse)
@@ -244,6 +230,20 @@ def _load_historical_data(config: SpaceConfig) -> pd.DataFrame:
         return df
     except Exception:
         return pd.DataFrame()
+
+
+def _extract_teams_by_league(df: pd.DataFrame) -> dict[str, list[str]]:
+    """Extract team names per league code from raw historical data."""
+    if df.empty or "League" not in df.columns:
+        return {}
+    league_name_to_code = {v: k for k, v in DIVISION_MAP.items()}
+    result: dict[str, list[str]] = {}
+    for league_name, group in df.groupby("League"):
+        code = league_name_to_code.get(str(league_name))
+        if code:
+            teams = sorted(set(group["HomeTeam"].unique()) | set(group["AwayTeam"].unique()))
+            result[code] = teams
+    return result
 
 
 def _engineer_features(df: pd.DataFrame, config: SpaceConfig) -> pd.DataFrame:

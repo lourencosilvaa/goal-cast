@@ -108,7 +108,12 @@ async def get_teams(
 ) -> dict[str, list[str]]:
     """Return available team names grouped by league code."""
     try:
-        return await inference_svc.get_teams()
+        data = await inference_svc.get_teams()
+        # Validate: if all leagues have the same teams, the data is bad
+        team_lists = list(data.values())
+        if len(team_lists) >= 2 and all(t == team_lists[0] for t in team_lists[1:]):
+            return _load_teams_from_cache()
+        return data
     except Exception:
         # Fallback: load teams from local CSV cache
         return _load_teams_from_cache()
