@@ -349,6 +349,10 @@ def main() -> None:
         target_dates = [args.date]
     else:
         target_dates = fetch_available_dates(league_codes)
+        today = datetime.now().strftime("%d/%m/%Y")
+        if today not in target_dates:
+            target_dates.append(today)
+        target_dates = sorted(target_dates, key=lambda d: datetime.strptime(d, "%d/%m/%Y"))
 
     if not target_dates:
         print("No fixture dates found.")
