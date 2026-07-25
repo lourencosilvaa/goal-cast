@@ -2,20 +2,24 @@ import { motion } from 'framer-motion';
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
 
+export type Accent = 'green' | 'red' | 'blue' | 'amber' | 'purple' | 'neutral';
+
 interface GlassCardProps {
   children: ReactNode;
   className?: string;
-  gradient?: 'purple' | 'blue' | 'teal' | 'green' | 'pink';
+  /** Semantic tint applied as a subtle corner gradient. */
+  accent?: Accent;
   padding?: 'sm' | 'md' | 'lg' | 'none';
   hover?: boolean;
 }
 
-const gradientMap: Record<string, string> = {
-  purple: 'before:from-violet-600/10',
-  blue: 'before:from-blue-600/10',
-  teal: 'before:from-teal-600/10',
-  green: 'before:from-emerald-600/10',
-  pink: 'before:from-pink-600/10',
+const accentOverlay: Record<Accent, string> = {
+  green: 'before:from-accent-green/10',
+  red: 'before:from-accent-red/10',
+  blue: 'before:from-accent-blue/10',
+  amber: 'before:from-accent-amber/10',
+  purple: 'before:from-accent-purple/10',
+  neutral: 'before:from-fg/5',
 };
 
 const paddingMap: Record<string, string> = {
@@ -28,7 +32,7 @@ const paddingMap: Record<string, string> = {
 export function GlassCard({
   children,
   className,
-  gradient,
+  accent,
   padding = 'md',
   hover = false,
 }: GlassCardProps) {
@@ -37,10 +41,10 @@ export function GlassCard({
       whileHover={hover ? { scale: 1.01, y: -2 } : undefined}
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
       className={clsx(
-        'glass rounded-2xl border border-white/[0.06] overflow-hidden relative',
+        'glass rounded-2xl border border-line overflow-hidden relative',
         paddingMap[padding],
-        gradient &&
-          `before:absolute before:inset-0 before:bg-gradient-to-br ${gradientMap[gradient]} before:to-transparent before:pointer-events-none`,
+        accent &&
+          `before:absolute before:inset-0 before:bg-gradient-to-br ${accentOverlay[accent]} before:to-transparent before:pointer-events-none`,
         className,
       )}
     >

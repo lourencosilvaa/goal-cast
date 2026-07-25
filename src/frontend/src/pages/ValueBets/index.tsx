@@ -14,9 +14,9 @@ interface FlatValueBet extends ValueBet {
 }
 
 function confidenceColor(conf: string): string {
-  if (conf === 'HIGH') return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20';
-  if (conf === 'MEDIUM') return 'bg-amber-500/15 text-amber-300 border-amber-500/20';
-  return 'bg-red-500/15 text-red-300 border-red-500/20';
+  if (conf === 'HIGH') return 'bg-accent-green/15 text-accent-green border-accent-green/25';
+  if (conf === 'MEDIUM') return 'bg-accent-amber/15 text-accent-amber border-accent-amber/25';
+  return 'bg-accent-red/15 text-accent-red border-accent-red/25';
 }
 
 function todayStr(): string {
@@ -77,8 +77,8 @@ export function ValueBetsPage() {
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white/90">Apostas de Valor</h1>
-          <p className="text-sm text-white/40 mt-1">
+          <h1 className="text-2xl font-bold text-fg">Apostas de Valor</h1>
+          <p className="text-sm text-fg-muted mt-1">
             Oportunidades onde o modelo ML identifica valor vs odds do bookmaker
           </p>
         </div>
@@ -86,14 +86,14 @@ export function ValueBetsPage() {
         <div className="flex items-center gap-3">
           {availableDates.length > 0 && (
             <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 pointer-events-none" />
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-subtle pointer-events-none" />
               <select
                 value={selectedDate}
                 onChange={(e) => handleDateChange(e.target.value)}
-                className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-white/[0.03] border border-white/[0.06] text-white/80 cursor-pointer focus:outline-none focus:border-green-500/30 backdrop-blur-sm"
+                className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-card border border-line text-fg cursor-pointer focus:outline-none focus:border-accent-blue/40"
               >
                 {availableDates.map((d) => (
-                  <option key={d} value={d} className="bg-[#0e0e16] text-white">
+                  <option key={d} value={d} className="bg-card text-fg">
                     {d === todayStr() ? `Hoje (${formatDateLabel(d)})` : formatDateLabel(d)}
                   </option>
                 ))}
@@ -113,12 +113,12 @@ export function ValueBetsPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
+          <Loader2 className="w-8 h-8 text-accent-blue animate-spin" />
         </div>
       ) : valueBets.length === 0 ? (
         <GlassCard className="text-center py-10">
-          <TrendingUp className="w-10 h-10 text-white/20 mx-auto mb-3" />
-          <p className="text-white/40">
+          <TrendingUp className="w-10 h-10 text-fg-subtle mx-auto mb-3" />
+          <p className="text-fg-muted">
             Sem apostas de valor detetadas para{' '}
             {selectedDate === todayStr() ? 'hoje' : formatDateLabel(selectedDate)}.
           </p>
@@ -132,34 +132,34 @@ export function ValueBetsPage() {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.04 }}
             >
-              <GlassCard gradient="green" padding="md" className="neon-glow">
+              <GlassCard accent="green" padding="md" className="neon-glow">
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-3">
-                    <TrendingUp className="w-5 h-5 text-green-400" />
+                    <TrendingUp className="w-5 h-5 text-accent-green" />
                     <div>
-                      <p className="text-white/90 font-semibold">
+                      <p className="text-fg font-semibold">
                         {vb.home_team} vs {vb.away_team}
                       </p>
-                      <p className="text-xs text-white/40">{vb.league}</p>
+                      <p className="text-xs text-fg-muted">{vb.league}</p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-4 flex-wrap">
                     <div className="text-center">
-                      <p className="text-[10px] text-white/30">Aposta</p>
-                      <p className="text-sm font-semibold text-green-300">{vb.outcome}</p>
+                      <p className="text-[10px] text-fg-subtle">Aposta</p>
+                      <p className="text-sm font-semibold text-accent-green">{vb.outcome}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-[10px] text-white/30">Edge</p>
-                      <p className="text-sm font-bold text-emerald-400">{vb.edge_pct}</p>
+                      <p className="text-[10px] text-fg-subtle">Edge</p>
+                      <p className="text-sm font-bold text-accent-green">{vb.edge_pct}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-[10px] text-white/30">Odds</p>
-                      <p className="text-sm font-semibold text-white/80">{vb.best_odds.toFixed(2)}</p>
+                      <p className="text-[10px] text-fg-subtle">Odds</p>
+                      <p className="text-sm font-semibold text-fg">{vb.best_odds.toFixed(2)}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-[10px] text-white/30">Kelly</p>
-                      <p className="text-sm text-white/60">{(vb.kelly_fraction * 100).toFixed(1)}%</p>
+                      <p className="text-[10px] text-fg-subtle">Kelly</p>
+                      <p className="text-sm text-fg-muted">{(vb.kelly_fraction * 100).toFixed(1)}%</p>
                     </div>
                     <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${confidenceColor(vb.confidence)}`}>
                       {vb.confidence}
@@ -167,7 +167,7 @@ export function ValueBetsPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 flex gap-4 text-xs text-white/40">
+                <div className="mt-3 flex gap-4 text-xs text-fg-muted">
                   <span>
                     ML: {(vb.ml_probability * 100).toFixed(1)}% vs B365:{' '}
                     {(vb.bookmaker_implied * 100).toFixed(1)}%

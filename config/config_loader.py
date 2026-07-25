@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AppConfig(BaseModel):
@@ -94,6 +94,24 @@ class XGBSearchConfig(BaseModel):
     param_grid: dict[str, list[int | float]] = {}
 
 
+class PoissonConfig(BaseModel):
+    """Dixon-Coles Poisson score model.
+
+    Models goals directly to produce calibrated scorelines and the O/U 2.5
+    and BTTS markets. Its 1X2 distribution is blended into the ensemble's
+    with weight ``blend_weight`` (0 = ensemble only, 1 = Poisson only).
+    ``blend_weight_grid`` is the candidate grid the offline sweep searches.
+    """
+
+    enabled: bool = False
+    max_goals: int = 10
+    half_life_days: float = 540
+    blend_weight: float = 0.4
+    blend_weight_grid: list[float] = Field(
+        default_factory=lambda: [round(i / 10, 1) for i in range(11)]
+    )
+
+
 class ModelConfig(BaseModel):
     test_size: float
     random_state: int
@@ -104,6 +122,7 @@ class ModelConfig(BaseModel):
     time_decay: TimeDecayConfig | None = None
     calibration: CalibrationConfig | None = None
     xgb_search: XGBSearchConfig | None = None
+    poisson: PoissonConfig | None = None
 
 
 class FlashScoreConfig(BaseModel):

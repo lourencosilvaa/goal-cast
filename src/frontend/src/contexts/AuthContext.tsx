@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
+import { config, devAuth } from '@/config';
 import { supabase } from '@/lib/supabase';
 
 interface UserProfile {
@@ -22,8 +23,21 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Fake session + profile used only when the local dev bypass is enabled. */
+const DEV_SESSION = {
+  access_token: devAuth.token,
+  token_type: 'bearer',
+  user: { id: devAuth.user.user_id, email: devAuth.user.email },
+} as unknown as Session;
+
+const DEV_PROFILE: UserProfile = {
+  user_id: devAuth.user.user_id,
+  email: devAuth.user.email,
+  approved: true,
+  is_admin: true,
+};
+
 async function fetchProfile(token: string): Promise<{ profile: UserProfile | null; backendDown: boolean }> {
-  const { config } = await import('@/config');
   try {
     const res = await fetch(`${config.apiUrl}/api/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -37,9 +51,11 @@ async function fetchProfile(token: string): Promise<{ profile: UserProfile | nul
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  // In local dev-bypass mode the mock session/profile are seeded up front so the
+  // effect can no-op (avoids a synchronous setState inside the effect).
+  const [session, setSession] = useState<Session | null>(devAuth.enabled ? DEV_SESSION : null);
+  const [profile, setProfile] = useState<UserProfile | null>(devAuth.enabled ? DEV_PROFILE : null);
+  const [loading, setLoading] = useState(!devAuth.enabled);
   const [backendDown, setBackendDown] = useState(false);
 
   async function loadProfile(s: Session | null) {
@@ -50,6 +66,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    // Local-only: skip Supabase + backend profile fetch entirely.
+    if (devAuth.enabled) return;
+
     supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
       await loadProfile(data.session);
@@ -70,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    if (devAuth.enabled) return;
     await supabase.auth.signOut();
     setProfile(null);
   }

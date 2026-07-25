@@ -59,7 +59,11 @@ jobs:
             -d '{"retraining": true}' || echo "WARNING: could not set retrain flag"
 
       # ── 4. Train model ─────────────────────────────────────────────────────
+      # Sets the `retrained` step output (true/false). When there is no new
+      # data (and no force), training is skipped and retrained=false, so the
+      # upload + redeploy steps below are skipped too — no needless redeploy.
       - name: Train model
+        id: train
         run: |
           FORCE_FLAG=""
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
@@ -69,11 +73,12 @@ jobs:
 
       # ── 5. Upload artefacts to Hugging Face Hub ────────────────────────────
       - name: Upload model to Hugging Face Hub
+        if: ${{ steps.train.outputs.retrained == 'true' }}
         run: uv run python scripts/upload_to_hf.py
 
       # ── 6. Trigger Render redeploy (backend restarts and downloads new model from HF) ──
       - name: Trigger Render redeploy
-        if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
+        if: ${{ steps.train.outputs.retrained == 'true' && env.RENDER_DEPLOY_HOOK_URL != '' }}
         run: |
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -X POST "$RENDER_DEPLOY_HOOK_URL")
@@ -99,6 +104,11 @@ jobs:
           echo "- **Repo:** \`$HF_REPO_ID\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Run:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.train.outputs.retrained }}" = "true" ]; then
+            echo "- **Retrained:** yes — uploaded + redeployed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Retrained:** no — model already up to date, skipped upload/redeploy" >> $GITHUB_STEP_SUMMARY
+          fi
           if [ -f output/models/training_results.json ]; then
             echo "- **Training results:** found ✓" >> $GITHUB_STEP_SUMMARY
           fi

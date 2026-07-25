@@ -12,9 +12,9 @@ function AccessRevoked() {
         <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center mx-auto mb-4">
           <ShieldOff className="w-7 h-7 text-white" />
         </div>
-        <GlassCard gradient="green">
-          <h2 className="text-lg font-semibold text-white/90 mb-2">Acesso Pendente</h2>
-          <p className="text-sm text-white/50 mb-5 leading-relaxed">
+        <GlassCard accent="red">
+          <h2 className="text-lg font-semibold text-fg mb-2">Acesso Pendente</h2>
+          <p className="text-sm text-fg-muted mb-5 leading-relaxed">
             A tua conta está a aguardar aprovação do administrador.
             Serás notificado quando o acesso for concedido.
           </p>
@@ -36,9 +36,9 @@ function BackendDown() {
         <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center mx-auto mb-4">
           <ServerCrash className="w-7 h-7 text-white" />
         </div>
-        <GlassCard gradient="green">
-          <h2 className="text-lg font-semibold text-white/90 mb-2">Servidor Indisponível</h2>
-          <p className="text-sm text-white/50 mb-5 leading-relaxed">
+        <GlassCard accent="amber">
+          <h2 className="text-lg font-semibold text-fg mb-2">Servidor Indisponível</h2>
+          <p className="text-sm text-fg-muted mb-5 leading-relaxed">
             Não foi possível contactar o servidor. Verifica a tua ligação ou tenta novamente.
           </p>
           <NeonButton variant="ghost" onClick={refreshProfile} className="w-full">
@@ -56,7 +56,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
     </div>
   );
   if (!session) return <Navigate to="/login" replace />;

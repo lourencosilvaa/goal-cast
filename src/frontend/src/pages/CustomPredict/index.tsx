@@ -21,19 +21,19 @@ const OUTCOME_LABELS: Record<string, string> = {
 };
 
 const OUTCOME_COLORS: Record<string, string> = {
-  'Home Win': 'text-green-400',
-  'Draw': 'text-yellow-400',
-  'Away Win': 'text-blue-400',
+  'Home Win': 'text-accent-green',
+  'Draw': 'text-accent-amber',
+  'Away Win': 'text-accent-blue',
 };
 
 function ProbBar({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex justify-between text-xs">
-        <span className="text-white/50">{label}</span>
+        <span className="text-fg-muted">{label}</span>
         <span className={`font-semibold ${color}`}>{(value * 100).toFixed(1)}%</span>
       </div>
-      <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+      <div className="h-1.5 rounded-full bg-card-2 overflow-hidden">
         <motion.div
           className={`h-full rounded-full bg-current ${color}`}
           initial={{ width: 0 }}
@@ -76,11 +76,11 @@ function TeamCombobox({
   }, [handleClickOutside]);
 
   const inputClass =
-    'w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-white/90 placeholder-white/20 focus:outline-none focus:border-green-500/40 transition-colors text-sm';
+    'w-full px-4 py-3 rounded-xl bg-card-2 border border-line text-fg placeholder-fg-subtle focus:outline-none focus:border-accent-blue/40 transition-colors text-sm';
 
   return (
     <div className="space-y-1.5" ref={ref}>
-      <label className="text-xs text-white/40 font-medium uppercase tracking-wide">
+      <label className="text-xs text-fg-muted font-medium uppercase tracking-wide">
         {label}
       </label>
       <div className="relative">
@@ -97,15 +97,15 @@ function TeamCombobox({
           placeholder={placeholder}
           className={inputClass}
         />
-        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 pointer-events-none" />
+        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle pointer-events-none" />
         {open && filtered.length > 0 && (
-          <div className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-xl bg-[#1a1a2e] border border-white/[0.08] shadow-xl">
+          <div className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-xl bg-card border border-line shadow-xl">
             {filtered.map((team) => (
               <button
                 key={team}
                 type="button"
-                className={`w-full text-left px-4 py-2 text-sm hover:bg-white/[0.06] transition-colors ${
-                  team === value ? 'text-green-400' : 'text-white/80'
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-card-2 transition-colors ${
+                  team === value ? 'text-accent-green' : 'text-fg'
                 }`}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
@@ -120,8 +120,8 @@ function TeamCombobox({
           </div>
         )}
         {open && filtered.length === 0 && query && (
-          <div className="absolute z-50 mt-1 w-full rounded-xl bg-[#1a1a2e] border border-white/[0.08] shadow-xl px-4 py-3">
-            <p className="text-xs text-white/30">Nenhuma equipa encontrada</p>
+          <div className="absolute z-50 mt-1 w-full rounded-xl bg-card border border-line shadow-xl px-4 py-3">
+            <p className="text-xs text-fg-subtle">Nenhuma equipa encontrada</p>
           </div>
         )}
       </div>
@@ -170,20 +170,20 @@ export function CustomPredictPage() {
   }
 
   const inputClass =
-    'w-full px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-white/90 placeholder-white/20 focus:outline-none focus:border-green-500/40 transition-colors text-sm';
+    'w-full px-4 py-3 rounded-xl bg-card-2 border border-line text-fg placeholder-fg-subtle focus:outline-none focus:border-accent-blue/40 transition-colors text-sm';
 
   return (
     <div className="max-w-lg mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white/90">Previsão Personalizada</h1>
-        <p className="text-sm text-white/40 mt-1">
+        <h1 className="text-2xl font-bold text-fg">Previsão Personalizada</h1>
+        <p className="text-sm text-fg-muted mt-1">
           Escolhe duas equipas e obtém uma previsão do modelo ML
         </p>
       </div>
 
       <GlassCard className="space-y-5">
         <div className="space-y-1.5">
-          <label className="text-xs text-white/40 font-medium uppercase tracking-wide">
+          <label className="text-xs text-fg-muted font-medium uppercase tracking-wide">
             Liga
           </label>
           <select
@@ -192,7 +192,7 @@ export function CustomPredictPage() {
             className={`${inputClass} cursor-pointer`}
           >
             {LEAGUES.map((l) => (
-              <option key={l.code} value={l.code} className="bg-[#0e0e16]">
+              <option key={l.code} value={l.code} className="bg-card text-fg">
                 {l.flag} {l.name}
               </option>
             ))}
@@ -245,7 +245,7 @@ export function CustomPredictPage() {
           className="mt-4"
         >
           <GlassCard className="text-center py-4">
-            <p className="text-red-400 text-sm">✗ {error}</p>
+            <p className="text-accent-red text-sm">✗ {error}</p>
           </GlassCard>
         </motion.div>
       )}
@@ -259,42 +259,42 @@ export function CustomPredictPage() {
           <GlassCard className="space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-white/30 mb-1">{result.league}</p>
-                <p className="text-lg font-bold text-white/90">
+                <p className="text-xs text-fg-subtle mb-1">{result.league}</p>
+                <p className="text-lg font-bold text-fg">
                   {result.home_team}{' '}
-                  <span className="text-white/30 font-normal">vs</span>{' '}
+                  <span className="text-fg-subtle font-normal">vs</span>{' '}
                   {result.away_team}
                 </p>
               </div>
               <div className="text-right">
-                <p className={`text-xl font-bold ${OUTCOME_COLORS[result.predicted_outcome] ?? 'text-white'}`}>
+                <p className={`text-xl font-bold ${OUTCOME_COLORS[result.predicted_outcome] ?? 'text-fg'}`}>
                   {OUTCOME_LABELS[result.predicted_outcome] ?? result.predicted_outcome}
                 </p>
-                <p className="text-xs text-white/30 mt-0.5">
+                <p className="text-xs text-fg-subtle mt-0.5">
                   {(result.confidence * 100).toFixed(0)}% confiança
                 </p>
               </div>
             </div>
 
-            <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+            <div className="space-y-3 pt-2 border-t border-line">
               <ProbBar
                 label="Vitória Casa"
                 value={result.probabilities.home_win}
-                color="text-green-400"
+                color="text-accent-green"
               />
               <ProbBar
                 label="Empate"
                 value={result.probabilities.draw}
-                color="text-yellow-400"
+                color="text-accent-amber"
               />
               <ProbBar
                 label="Vitória Fora"
                 value={result.probabilities.away_win}
-                color="text-blue-400"
+                color="text-accent-blue"
               />
             </div>
 
-            <p className="text-[10px] text-white/20 text-center">
+            <p className="text-[10px] text-fg-subtle text-center">
               Previsão baseada em dados históricos · Aposte com responsabilidade
             </p>
           </GlassCard>

@@ -1,13 +1,19 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import clsx from 'clsx';
 import { RefreshCw, Loader2, Calendar, Download, CircleSlash, Cpu } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
-import { MatchCard } from '@/components/match/MatchCard';
+import { MatchSummaryCard } from '@/components/match/MatchSummaryCard';
+import { DetailPanel } from '@/components/layout/DetailPanel';
 import { fetchAvailableDates, fetchLeagues, downloadExport, runInference } from '@/lib/api';
 import type { InferencePrediction } from '@/lib/api';
 import { usePredictions } from '@/contexts/PredictionsContext';
-import type { League } from '@/types';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { buildMatchId } from '@/lib/matchId';
+import { layout } from '@/config';
+import type { League, MatchPrediction } from '@/types';
 
 const LEAGUE_ICONS: Record<string, string> = {
   E0: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
@@ -37,10 +43,14 @@ function todayStr(): string {
 }
 
 export function Dashboard() {
+  const navigate = useNavigate();
+  const isWide = useMediaQuery(layout.detailPanelQuery);
+
   const [leagueList, setLeagueList] = useState<League[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
   const [activeLeague, setActiveLeague] = useState<string | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<MatchPrediction | null>(null);
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -82,7 +92,20 @@ export function Dashboard() {
 
   const handleDateChange = useCallback((date: string) => {
     setSelectedDate(date);
+    setSelectedMatch(null);
   }, []);
+
+  const handleSelectMatch = useCallback(
+    (match: MatchPrediction, leagueCode: string) => {
+      if (isWide) {
+        setSelectedMatch(match);
+      } else {
+        const id = buildMatchId(leagueCode, match.home_team, match.away_team);
+        navigate(`/match/${id}?date=${encodeURIComponent(selectedDate)}`);
+      }
+    },
+    [isWide, navigate, selectedDate],
+  );
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -124,14 +147,15 @@ export function Dashboard() {
   );
 
   const displayError = initError || error;
+  const panelOpen = isWide && !!selectedMatch;
 
   return (
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white/90">Dashboard</h1>
-          <p className="text-sm text-white/40 mt-1">
+          <h1 className="text-2xl font-bold text-fg">Dashboard</h1>
+          <p className="text-sm text-fg-muted mt-1">
             Previsões ML para {selectedDate === todayStr() ? 'hoje' : formatDateLabel(selectedDate)}
           </p>
         </div>
@@ -139,14 +163,14 @@ export function Dashboard() {
         <div className="flex items-center gap-3">
           {availableDates.length > 0 && (
             <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/40 pointer-events-none" />
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-subtle pointer-events-none" />
               <select
                 value={selectedDate}
                 onChange={(e) => handleDateChange(e.target.value)}
-                className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-white/[0.03] border border-white/[0.06] text-white/80 cursor-pointer focus:outline-none focus:border-green-500/30 backdrop-blur-sm"
+                className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-card border border-line text-fg cursor-pointer focus:outline-none focus:border-accent-blue/40"
               >
                 {availableDates.map((d) => (
-                  <option key={d} value={d} className="bg-[#0e0e16] text-white">
+                  <option key={d} value={d} className="bg-card text-fg">
                     {d === todayStr() ? `Hoje (${formatDateLabel(d)})` : formatDateLabel(d)}
                   </option>
                 ))}
@@ -175,9 +199,9 @@ export function Dashboard() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <KpiCard label="Ligas" value={leagueList.length} icon="🏆" delay={0} />
-        <KpiCard label="Jogos" value={totalMatches} icon="⚽" delay={0.05} />
-        <KpiCard label="Value Bets" value={totalValueBets} icon="💡" delay={0.1} />
+        <KpiCard label="Ligas" value={leagueList.length} icon="🏆" accent="blue" delay={0} />
+        <KpiCard label="Jogos" value={totalMatches} icon="⚽" accent="neutral" delay={0.05} />
+        <KpiCard label="Value Bets" value={totalValueBets} icon="💡" accent="green" delay={0.1} />
         <KpiCard
           label="Melhor Edge"
           value={
@@ -192,41 +216,42 @@ export function Dashboard() {
               : '—'
           }
           icon="🎯"
+          accent="amber"
           delay={0.15}
         />
       </div>
 
       {/* Live inference results */}
       {inferError && (
-        <GlassCard className="mb-4 text-center py-4">
-          <p className="text-red-400 text-sm">✗ {inferError}</p>
+        <GlassCard accent="red" className="mb-4 text-center py-4">
+          <p className="text-accent-red text-sm">✗ {inferError}</p>
         </GlassCard>
       )}
       {inferResults && inferResults.length === 0 && (
         <GlassCard className="mb-4 text-center py-4">
-          <p className="text-white/40 text-sm">Sem previsões ao vivo para esta seleção.</p>
+          <p className="text-fg-muted text-sm">Sem previsões ao vivo para esta seleção.</p>
         </GlassCard>
       )}
       {inferResults && inferResults.length > 0 && (
-        <GlassCard className="mb-6">
+        <GlassCard accent="blue" className="mb-6">
           <div className="flex items-center gap-2 mb-4">
-            <Cpu className="w-4 h-4 text-green-400" />
-            <h3 className="text-sm font-semibold text-white/80">Previsões ao vivo (modelo HF)</h3>
+            <Cpu className="w-4 h-4 text-accent-blue" />
+            <h3 className="text-sm font-semibold text-fg">Previsões ao vivo (modelo HF)</h3>
             <button
               onClick={() => setInferResults(null)}
-              className="ml-auto text-xs text-white/30 hover:text-white/60"
+              className="ml-auto text-xs text-fg-subtle hover:text-fg"
             >
               Fechar
             </button>
           </div>
           <div className="space-y-2">
             {inferResults.map((r, i) => (
-              <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                <span className="text-sm text-white/70">{r.home_team} vs {r.away_team}</span>
+              <div key={i} className="flex items-center justify-between py-2 border-b border-line last:border-0">
+                <span className="text-sm text-fg-muted">{r.home_team} vs {r.away_team}</span>
                 <div className="flex items-center gap-3 text-xs">
-                  <span className="text-white/50">{r.league ?? ''}</span>
-                  <span className="text-green-400 font-medium">{r.predicted_outcome}</span>
-                  <span className="text-white/30">{(r.confidence * 100).toFixed(0)}%</span>
+                  <span className="text-fg-subtle">{r.league ?? ''}</span>
+                  <span className="text-accent-blue font-medium">{r.predicted_outcome}</span>
+                  <span className="text-fg-subtle">{(r.confidence * 100).toFixed(0)}%</span>
                 </div>
               </div>
             ))}
@@ -237,40 +262,44 @@ export function Dashboard() {
       {/* Loading / Error */}
       {(loadingLeagues || loading) && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
-          <span className="ml-3 text-white/40">
+          <Loader2 className="w-8 h-8 text-accent-blue animate-spin" />
+          <span className="ml-3 text-fg-muted">
             {loadingLeagues ? 'A carregar ligas...' : 'A carregar previsões...'}
           </span>
         </div>
       )}
 
       {displayError && !loading && (
-        <GlassCard className="text-center py-10">
-          <p className="text-red-400">{displayError}</p>
+        <GlassCard accent="red" className="text-center py-10">
+          <p className="text-accent-red">{displayError}</p>
           <NeonButton variant="secondary" size="sm" onClick={() => window.location.reload()} className="mt-4">
             Tentar novamente
           </NeonButton>
         </GlassCard>
       )}
 
-      {/* League tabs */}
+      {/* League tabs + master/detail */}
       {!loadingLeagues && !loading && !displayError && leagueList.length > 0 && (
         <>
           <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide pb-1">
             {leagueList.map((league) => (
               <button
                 key={league.code}
-                onClick={() => setActiveLeague(league.code)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all cursor-pointer ${
+                onClick={() => {
+                  setActiveLeague(league.code);
+                  setSelectedMatch(null);
+                }}
+                className={clsx(
+                  'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all cursor-pointer border',
                   activeLeague === league.code
-                    ? 'bg-gradient-to-r from-green-600/20 to-emerald-600/10 border border-green-500/20 text-white'
-                    : 'glass border border-white/[0.06] text-white/50 hover:text-white/80'
-                }`}
+                    ? 'bg-accent-blue/12 border-accent-blue/25 text-fg'
+                    : 'glass border-line text-fg-muted hover:text-fg',
+                )}
               >
                 <span>{LEAGUE_ICONS[league.code] || '🏟️'}</span>
                 {league.name}
                 {leagueDataMap[league.code] && (
-                  <span className="text-[10px] text-white/30 ml-1">
+                  <span className="text-[10px] text-fg-subtle ml-1">
                     ({leagueDataMap[league.code].matches.length})
                   </span>
                 )}
@@ -279,21 +308,37 @@ export function Dashboard() {
           </div>
 
           {currentLeague && currentLeague.matches.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {currentLeague.matches.map((match, i) => (
-                <MatchCard
-                  key={`${match.home_team}-${match.away_team}`}
-                  match={match}
-                  index={i}
-                />
-              ))}
+            <div className="flex gap-4 items-start">
+              <div
+                className={clsx(
+                  'min-w-0 flex-1 grid gap-3',
+                  panelOpen ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2',
+                )}
+              >
+                {currentLeague.matches.map((match, i) => (
+                  <MatchSummaryCard
+                    key={`${match.home_team}-${match.away_team}`}
+                    match={match}
+                    index={i}
+                    selected={
+                      selectedMatch?.home_team === match.home_team &&
+                      selectedMatch?.away_team === match.away_team
+                    }
+                    onSelect={() => handleSelectMatch(match, currentLeague.league_code)}
+                  />
+                ))}
+              </div>
+
+              {isWide && (
+                <DetailPanel match={selectedMatch} onClose={() => setSelectedMatch(null)} />
+              )}
             </div>
           ) : currentLeague ? (
             <GlassCard className="text-center py-10">
-              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
-                <CircleSlash className="w-6 h-6 text-white/20" />
+              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-card-2 flex items-center justify-center">
+                <CircleSlash className="w-6 h-6 text-fg-subtle" />
               </div>
-              <p className="text-white/40">
+              <p className="text-fg-muted">
                 Sem jogos agendados para {currentLeague.league_name} em{' '}
                 {selectedDate === todayStr() ? 'hoje' : formatDateLabel(selectedDate)}.
               </p>
@@ -304,10 +349,10 @@ export function Dashboard() {
 
       {!loadingLeagues && !loading && !displayError && allLeagues.length === 0 && (
         <GlassCard className="text-center py-10">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-white/5 flex items-center justify-center">
-            <CircleSlash className="w-6 h-6 text-white/20" />
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-card-2 flex items-center justify-center">
+            <CircleSlash className="w-6 h-6 text-fg-subtle" />
           </div>
-          <p className="text-white/40">
+          <p className="text-fg-muted">
             Sem jogos agendados para{' '}
             {selectedDate === todayStr() ? 'hoje' : formatDateLabel(selectedDate)}.
           </p>
@@ -321,11 +366,13 @@ function KpiCard({
   label,
   value,
   icon,
+  accent,
   delay,
 }: {
   label: string;
   value: number | string;
   icon: string;
+  accent: 'green' | 'red' | 'blue' | 'amber' | 'purple' | 'neutral';
   delay: number;
 }) {
   return (
@@ -334,12 +381,12 @@ function KpiCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.3 }}
     >
-      <GlassCard padding="sm">
+      <GlassCard padding="sm" accent={accent}>
         <div className="flex items-center gap-3">
           <span className="text-2xl">{icon}</span>
           <div>
-            <p className="text-xs text-white/40">{label}</p>
-            <p className="text-xl font-bold text-white/90">{value}</p>
+            <p className="text-xs text-fg-muted">{label}</p>
+            <p className="text-xl font-bold text-fg">{value}</p>
           </div>
         </div>
       </GlassCard>

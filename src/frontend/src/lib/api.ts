@@ -1,10 +1,14 @@
 import { config } from '@/config';
+import { devAuth } from '@/config';
 import { supabase } from '@/lib/supabase';
 import type { League, LeaguePredictions } from '@/types';
 
 const BASE = config.apiUrl;
 
 async function authHeaders(): Promise<Record<string, string>> {
+  if (devAuth.enabled) {
+    return { Authorization: `Bearer ${devAuth.token}` };
+  }
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};

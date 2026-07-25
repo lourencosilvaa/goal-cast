@@ -89,8 +89,8 @@ export function AdminPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white/90">Admin</h1>
-          <p className="text-sm text-white/40 mt-1">Gestão de utilizadores</p>
+          <h1 className="text-2xl font-bold text-fg">Admin</h1>
+          <p className="text-sm text-fg-muted mt-1">Gestão de utilizadores</p>
         </div>
         <NeonButton onClick={() => setShowCreate((v) => !v)}>
           <UserPlus className="w-4 h-4 mr-1.5" />
@@ -100,24 +100,24 @@ export function AdminPage() {
 
       {/* Create user form */}
       {showCreate && (
-        <GlassCard gradient="green" className="mb-6 max-w-md">
-          <h2 className="text-sm font-semibold text-white/80 mb-4 flex items-center gap-2">
+        <GlassCard accent="blue" className="mb-6 max-w-md">
+          <h2 className="text-sm font-semibold text-fg mb-4 flex items-center gap-2">
             <UserPlus className="w-4 h-4" /> Criar utilizador
           </h2>
           <form onSubmit={handleCreate} className="space-y-3">
             <div>
-              <label className="block text-xs text-white/50 mb-1">Email</label>
+              <label className="block text-xs text-fg-muted mb-1">Email</label>
               <input
                 type="email"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 required
                 placeholder="email@exemplo.com"
-                className="w-full px-3 py-2 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 placeholder:text-white/20 transition-colors"
+                className="w-full px-3 py-2 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg placeholder:text-fg-subtle transition-colors"
               />
             </div>
             <div>
-              <label className="block text-xs text-white/50 mb-1">
+              <label className="block text-xs text-fg-muted mb-1">
                 <Key className="w-3 h-3 inline mr-1" />
                 Password temporária
               </label>
@@ -128,11 +128,11 @@ export function AdminPage() {
                 required
                 minLength={6}
                 placeholder="••••••••"
-                className="w-full px-3 py-2 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 placeholder:text-white/20 transition-colors"
+                className="w-full px-3 py-2 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg placeholder:text-fg-subtle transition-colors"
               />
             </div>
             {createError && (
-              <p className="text-xs text-red-400">{createError}</p>
+              <p className="text-xs text-accent-red">{createError}</p>
             )}
             <div className="flex gap-2 pt-1">
               <NeonButton type="submit" disabled={creating} className="flex-1">
@@ -147,24 +147,24 @@ export function AdminPage() {
       )}
 
       {/* Users table */}
-      <GlassCard gradient="green">
+      <GlassCard accent="purple">
         <div className="flex items-center gap-2 mb-5">
-          <Users className="w-5 h-5 text-green-400" />
-          <h2 className="text-sm font-semibold text-white/80">
+          <Users className="w-5 h-5 text-accent-purple" />
+          <h2 className="text-sm font-semibold text-fg">
             Utilizadores ({users.length})
           </h2>
         </div>
 
         {loading && (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 text-green-400 animate-spin" />
+            <Loader2 className="w-6 h-6 text-accent-blue animate-spin" />
           </div>
         )}
 
-        {error && <p className="text-sm text-red-400 text-center py-4">{error}</p>}
+        {error && <p className="text-sm text-accent-red text-center py-4">{error}</p>}
 
         {!loading && !error && users.length === 0 && (
-          <p className="text-sm text-white/30 text-center py-4">
+          <p className="text-sm text-fg-subtle text-center py-4">
             Nenhum utilizador encontrado.
           </p>
         )}
@@ -174,17 +174,17 @@ export function AdminPage() {
             {users.map((user) => (
               <div
                 key={user.user_id}
-                className="flex items-center justify-between py-3 px-4 rounded-xl bg-white/[0.03] border border-white/[0.06]"
+                className="flex items-center justify-between py-3 px-4 rounded-xl bg-card-2 border border-line"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500/30 to-emerald-600/30 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-green-300 uppercase">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-blue/30 to-accent-purple/30 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-bold text-accent-blue uppercase">
                       {user.email[0]}
                     </span>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm text-white/80 font-mono truncate">{user.email}</p>
-                    <p className="text-[10px] text-white/30 font-mono">{user.user_id.slice(0, 8)}…</p>
+                    <p className="text-sm text-fg font-mono truncate">{user.email}</p>
+                    <p className="text-[10px] text-fg-subtle font-mono">{user.user_id.slice(0, 8)}…</p>
                   </div>
                 </div>
 

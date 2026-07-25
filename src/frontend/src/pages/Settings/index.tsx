@@ -110,19 +110,19 @@ export function SettingsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white/90">Definições</h1>
-        <p className="text-sm text-white/40 mt-1">
+        <h1 className="text-2xl font-bold text-fg">Definições</h1>
+        <p className="text-sm text-fg-muted mt-1">
           Configura as API keys para funcionalidades avançadas
         </p>
       </div>
 
       <div className="max-w-lg space-y-4">
         {/* Account card */}
-        <GlassCard gradient="green">
+        <GlassCard accent="blue">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-white/40 mb-0.5">Sessão iniciada como</p>
-              <p className="text-sm text-white/80 font-mono">{user?.email}</p>
+              <p className="text-xs text-fg-muted mb-0.5">Sessão iniciada como</p>
+              <p className="text-sm text-fg font-mono">{user?.email}</p>
             </div>
             <NeonButton variant="ghost" onClick={signOut}>
               <LogOut className="w-4 h-4 mr-1.5" />
@@ -132,43 +132,43 @@ export function SettingsPage() {
         </GlassCard>
 
         {/* API keys card */}
-        <GlassCard gradient="green">
+        <GlassCard accent="purple">
           <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center">
               <Key className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white/90">API Keys</h2>
-              <p className="text-xs text-white/40">Guardadas de forma encriptada no servidor</p>
+              <h2 className="text-lg font-semibold text-fg">API Keys</h2>
+              <p className="text-xs text-fg-muted">Guardadas de forma encriptada no servidor</p>
             </div>
           </div>
 
           {/* Gemini key */}
           <div className="mb-5">
-            <label className="block text-sm text-white/60 mb-2">
+            <label className="block text-sm text-fg-muted mb-2">
               <Sparkles className="w-3.5 h-3.5 inline mr-1.5" />
               Google Gemini API Key
               {hasStoredKey && (
-                <span className="ml-2 text-[10px] text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">
+                <span className="ml-2 text-[10px] text-accent-green bg-accent-green/10 px-1.5 py-0.5 rounded-full">
                   Configurada
                 </span>
               )}
             </label>
             <div className="relative">
-              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" />
               <input
                 type="password"
                 value={geminiKey}
                 onChange={(e) => setGeminiKey(e.target.value)}
                 placeholder={hasStoredKey ? '••••••••  (deixa em branco para manter)' : 'AIza...'}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 font-mono placeholder:text-white/20 transition-colors"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg font-mono placeholder:text-fg-subtle transition-colors"
               />
             </div>
             <a
               href="https://aistudio.google.com/apikey"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-green-400 hover:text-green-300 mt-2 transition-colors"
+              className="inline-flex items-center gap-1 text-xs text-accent-blue hover:opacity-80 mt-2 transition-opacity"
             >
               Obter chave <ExternalLink className="w-3 h-3" />
             </a>
@@ -176,17 +176,17 @@ export function SettingsPage() {
 
           {/* Model selector */}
           <div className="mb-5">
-            <label className="block text-sm text-white/60 mb-2">
+            <label className="block text-sm text-fg-muted mb-2">
               <Cpu className="w-3.5 h-3.5 inline mr-1.5" />
               Modelo Gemini
             </label>
             <select
               value={geminiModel}
               onChange={(e) => setGeminiModel(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 bg-transparent transition-colors appearance-none cursor-pointer"
+              className="w-full px-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg bg-transparent transition-colors appearance-none cursor-pointer"
             >
               {GEMINI_MODELS.map((m) => (
-                <option key={m.value} value={m.value} className="bg-gray-900 text-white">
+                <option key={m.value} value={m.value} className="bg-card text-fg">
                   {m.label}
                 </option>
               ))}
@@ -196,8 +196,8 @@ export function SettingsPage() {
           {/* Security note */}
           <GlassCard padding="sm" className="mb-5">
             <div className="flex items-start gap-2">
-              <Shield className="w-4 h-4 text-teal-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-white/50 leading-relaxed">
+              <Shield className="w-4 h-4 text-accent-blue mt-0.5 shrink-0" />
+              <p className="text-xs text-fg-muted leading-relaxed">
                 A API key é encriptada com Fernet AES antes de ser guardada no servidor.
                 Nunca é exposta ao cliente após ser guardada.
               </p>
@@ -217,49 +217,49 @@ export function SettingsPage() {
           </div>
 
           {feedback && (
-            <p className={`text-xs text-center mt-3 ${feedback.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+            <p className={`text-xs text-center mt-3 ${feedback.type === 'ok' ? 'text-accent-green' : 'text-accent-red'}`}>
               {feedback.type === 'ok' ? '✓' : '✗'} {feedback.msg}
             </p>
           )}
         </GlassCard>
 
         {/* NVIDIA API key card */}
-        <GlassCard gradient="green">
+        <GlassCard accent="green">
           <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-600 to-teal-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-green to-accent-blue flex items-center justify-center">
               <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white/90">NVIDIA API Key</h2>
-              <p className="text-xs text-white/40">Para modelos NIM e inferência acelerada por GPU</p>
+              <h2 className="text-lg font-semibold text-fg">NVIDIA API Key</h2>
+              <p className="text-xs text-fg-muted">Para modelos NIM e inferência acelerada por GPU</p>
             </div>
           </div>
 
           <div className="mb-5">
-            <label className="block text-sm text-white/60 mb-2">
+            <label className="block text-sm text-fg-muted mb-2">
               <Zap className="w-3.5 h-3.5 inline mr-1.5" />
               NVIDIA NIM API Key
               {hasNvidiaKey && (
-                <span className="ml-2 text-[10px] text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">
+                <span className="ml-2 text-[10px] text-accent-green bg-accent-green/10 px-1.5 py-0.5 rounded-full">
                   Configurada
                 </span>
               )}
             </label>
             <div className="relative">
-              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" />
               <input
                 type="password"
                 value={nvidiaKey}
                 onChange={(e) => setNvidiaKey(e.target.value)}
                 placeholder={hasNvidiaKey ? '••••••••  (deixa em branco para manter)' : 'nvapi-...'}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 font-mono placeholder:text-white/20 transition-colors"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg font-mono placeholder:text-fg-subtle transition-colors"
               />
             </div>
             <a
               href="https://build.nvidia.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-green-400 hover:text-green-300 mt-2 transition-colors"
+              className="inline-flex items-center gap-1 text-xs text-accent-blue hover:opacity-80 mt-2 transition-opacity"
             >
               Obter chave em build.nvidia.com <ExternalLink className="w-3 h-3" />
             </a>
@@ -267,8 +267,8 @@ export function SettingsPage() {
 
           <GlassCard padding="sm" className="mb-5">
             <div className="flex items-start gap-2">
-              <Shield className="w-4 h-4 text-teal-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-white/50 leading-relaxed">
+              <Shield className="w-4 h-4 text-accent-blue mt-0.5 shrink-0" />
+              <p className="text-xs text-fg-muted leading-relaxed">
                 A chave é encriptada com Fernet AES antes de ser guardada. Nunca é exposta ao cliente.
               </p>
             </div>
@@ -286,7 +286,7 @@ export function SettingsPage() {
           </div>
 
           {nvidiaFeedback && (
-            <p className={`text-xs text-center mt-3 ${nvidiaFeedback.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+            <p className={`text-xs text-center mt-3 ${nvidiaFeedback.type === 'ok' ? 'text-accent-green' : 'text-accent-red'}`}>
               {nvidiaFeedback.type === 'ok' ? '✓' : '✗'} {nvidiaFeedback.msg}
             </p>
           )}

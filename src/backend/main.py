@@ -48,6 +48,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     service = PredictionService(config)
     app.state.prediction_service = service
     app.state.config = config
+    from src.backend.core import dev_auth
+
+    if dev_auth.is_enabled():
+        print(
+            "⚠️  DEV_AUTH_BYPASS is ENABLED — login is bypassed as "
+            f"'{dev_auth.dev_user_id()}'. NEVER enable this in production."
+        )
     print("Backend ready (predictions served from Supabase).")
     yield
 
