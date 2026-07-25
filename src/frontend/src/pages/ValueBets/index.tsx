@@ -43,9 +43,7 @@ export function ValueBetsPage() {
     fetchAvailableDates()
       .then((dates) => {
         setAvailableDates(dates);
-        if (dates.length > 0 && !dates.includes(todayStr())) {
-          setSelectedDate(dates[0]);
-        }
+        // Always default to the current day, even if it has no fixtures.
       })
       .catch(() => {});
   }, []);
@@ -63,6 +61,16 @@ export function ValueBetsPage() {
   }, [allLeagues]);
 
   const handleDateChange = useCallback((date: string) => setSelectedDate(date), []);
+
+  // Always include today in the date options, even without fixtures, sorted
+  // most-recent first, so the dropdown always reflects the current day.
+  const displayDates = [todayStr(), ...availableDates.filter((d) => d !== todayStr())].sort(
+    (a, b) => {
+      const [da, ma, ya] = a.split('/').map(Number);
+      const [db, mb, yb] = b.split('/').map(Number);
+      return new Date(yb, mb - 1, db).getTime() - new Date(ya, ma - 1, da).getTime();
+    },
+  );
 
   async function handleExport(format: 'csv' | 'excel') {
     setExporting(true);
@@ -84,7 +92,7 @@ export function ValueBetsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {availableDates.length > 0 && (
+          {displayDates.length > 0 && (
             <div className="relative">
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-subtle pointer-events-none" />
               <select
@@ -92,7 +100,7 @@ export function ValueBetsPage() {
                 onChange={(e) => handleDateChange(e.target.value)}
                 className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-card border border-line text-fg cursor-pointer focus:outline-none focus:border-accent-blue/40"
               >
-                {availableDates.map((d) => (
+                {displayDates.map((d) => (
                   <option key={d} value={d} className="bg-card text-fg">
                     {d === todayStr() ? `Hoje (${formatDateLabel(d)})` : formatDateLabel(d)}
                   </option>
