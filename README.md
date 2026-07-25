@@ -532,6 +532,33 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
+### Local login bypass (optional)
+
+To skip Supabase login while developing locally, enable the dev auth bypass on
+**both** sides. It uses a synthetic dev user (no Supabase account required):
+
+Backend — in `.env`:
+
+```
+DEV_AUTH_BYPASS=true
+# optional overrides
+DEV_USER_ID=dev-user
+DEV_USER_EMAIL=dev@localhost
+```
+
+Frontend — in `src/frontend/.env.local`:
+
+```
+VITE_DEV_AUTH_BYPASS=true
+# optional overrides (must match the backend values)
+VITE_DEV_USER_ID=dev-user
+VITE_DEV_USER_EMAIL=dev@localhost
+```
+
+> ⚠️ This is **local-only**. The frontend gate is compiled out of production
+> builds (`import.meta.env.DEV`), and the backend flag must never be set in a
+> deployed environment. When enabled, the backend logs a warning at startup.
+
 ### ML Pipeline (standalone)
 
 ```bash

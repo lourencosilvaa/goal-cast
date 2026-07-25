@@ -49,3 +49,41 @@ class TestValidateToken:
             await get_current_user(credentials=None)
 
         assert exc.value.status_code == 401
+
+
+class TestDevBypass:
+    @pytest.mark.asyncio
+    async def test_get_current_user_returns_dev_id_when_enabled(self, monkeypatch) -> None:
+        from src.backend.core.auth import get_current_user
+
+        monkeypatch.setenv("DEV_AUTH_BYPASS", "true")
+        monkeypatch.setenv("DEV_USER_ID", "local-dev")
+
+        # No credentials and no Supabase call needed.
+        user_id = await get_current_user(credentials=None)
+
+        assert user_id == "local-dev"
+
+    @pytest.mark.asyncio
+    async def test_get_approved_user_skips_profile_check_when_enabled(self, monkeypatch) -> None:
+        from src.backend.core.auth import get_approved_user
+
+        monkeypatch.setenv("DEV_AUTH_BYPASS", "true")
+        monkeypatch.setenv("DEV_USER_ID", "local-dev")
+
+        # Would raise if Supabase were touched (no client configured in tests).
+        user_id = await get_approved_user(user_id="local-dev")
+
+        assert user_id == "local-dev"
+
+    @pytest.mark.asyncio
+    async def test_disabled_bypass_still_requires_credentials(self, monkeypatch) -> None:
+        from src.backend.core.auth import get_current_user
+
+        monkeypatch.setenv("DEV_AUTH_BYPASS", "false")
+
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(credentials=None)
+
+        assert exc.value.status_code == 401
+
