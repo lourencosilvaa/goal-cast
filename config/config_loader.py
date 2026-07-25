@@ -191,6 +191,37 @@ class SpaceConfig(BaseModel):
     inference: InferenceConfig
 
 
+class InternationalFlashScoreConfig(BaseModel):
+    """FlashScore competition slug map for national-team fixtures.
+
+    Keys are internal tournament codes and values are FlashScore URL slugs
+    (e.g. ``world/world-cup``) resolved by the shared FlashScore scraper.
+    """
+
+    leagues: dict[str, str] = {}
+
+
+class InternationalConfig(BaseModel):
+    """National-teams (international) prediction track configuration.
+
+    Drives a parallel, goals-only pipeline trained from a fixed Kaggle
+    dataset. All environment-dependent values live here (never hardcoded):
+    dataset path, training filters, neutral-venue handling, artifact
+    directory and the FlashScore competition slug map.
+    """
+
+    enabled: bool = True
+    dataset_path: str
+    min_date: str = "1990-01-01"
+    models_dir: str = "output/models/international"
+    # Scales ELO/Poisson home advantage on neutral venues: 0.0 removes it
+    # entirely (true neutral), 1.0 keeps the full home advantage.
+    neutral_home_advantage_factor: float = 0.0
+    # Empty list means "include every tournament in the dataset".
+    tournaments: list[str] = Field(default_factory=list)
+    flashscore: InternationalFlashScoreConfig = InternationalFlashScoreConfig()
+
+
 class Config(BaseModel):
     app: AppConfig
     data: DataConfig
@@ -204,6 +235,9 @@ class Config(BaseModel):
     evaluation: EvaluationConfig = EvaluationConfig()
     huggingface: HuggingFaceConfig = HuggingFaceConfig()
     inference: InferenceConfig = InferenceConfig()
+    international: InternationalConfig = InternationalConfig(
+        dataset_path="datasets/international/results.csv"
+    )
 
 
 def load_config(path: str | Path = "config/config.yaml") -> Config:

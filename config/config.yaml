@@ -186,6 +186,39 @@ inference:
 evaluation:
   storage_dir: "output/evaluation"
 
+# National-teams (international) prediction track. A parallel, goals-only
+# pipeline trained from the fixed Kaggle dataset (results.csv). Upcoming
+# game lists come from FlashScore using the tournament slug map below.
+international:
+  enabled: true
+  dataset_path: "datasets/international/results.csv"
+  # Training focuses on the modern era for FIFA-ranking-relevant squads.
+  min_date: "1990-01-01"
+  models_dir: "output/models/international"
+  # 0.0 = true neutral (no home edge); 1.0 = keep full home advantage.
+  neutral_home_advantage_factor: 0.0
+  # Empty list = train on every tournament present in the dataset.
+  tournaments: []
+  # Tournament code -> FlashScore URL slug. Slugs are configurable and may
+  # need adjustment if FlashScore changes its paths.
+  flashscore:
+    leagues:
+      WC: "world/world-cup"
+      WCQ_EU: "world/world-cup-qualification-europe"
+      WCQ_SA: "world/world-cup-qualification-conmebol"
+      WCQ_AF: "world/world-cup-qualification-caf"
+      WCQ_AS: "world/world-cup-qualification-afc"
+      WCQ_NA: "world/world-cup-qualification-concacaf"
+      EURO: "europe/euro"
+      EUROQ: "europe/euro-qualification"
+      UNL: "europe/uefa-nations-league"
+      COPA: "south-america/copa-america"
+      AFCON: "africa/africa-cup-of-nations"
+      ASIAN: "asia/asian-cup"
+      CONCACAF_NL: "north-central-america/concacaf-nations-league"
+      GOLD_CUP: "north-central-america/gold-cup"
+      FRIENDLY: "world/friendly-international"
+
 output:
   reports_dir: "output/reports"
   models_dir: "output/models"

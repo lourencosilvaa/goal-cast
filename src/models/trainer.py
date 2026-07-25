@@ -106,6 +106,7 @@ class ModelTrainer:
                     "attack_similarity",
                     "defense_similarity",
                     "combined_defensive",
+                    "is_neutral",
                 )
             )
             and c not in excluded
