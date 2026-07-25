@@ -82,20 +82,34 @@ Historical match data covers **8 seasons** across **6 leagues**, sourced from [f
 
 ### Ensemble Model
 
-Four classifiers combined via soft voting (weights `[1, 1, 2]`):
+Three classifiers combined via soft voting (weights `[1, 1, 2]`):
 
 | Model | Key Hyperparameters |
 |-------|---------------------|
 | Logistic Regression | `C=0.5`, `max_iter=1000`, `class_weight=balanced` |
 | Random Forest | `n_estimators=200`, `max_depth=8`, `min_samples_leaf=10` |
-| XGBoost (×2 weight) | `n_estimators=200`, `max_depth=5`, `lr=0.05`, `subsample=0.8` |
-| Gradient Boosting | `n_estimators=150`, `max_depth=4`, `lr=0.08` (comparison only) |
+| XGBoost (×2 weight) | `n_estimators=400`, `max_depth=3`, `lr=0.01`, `subsample=0.8`, `colsample_bytree=0.9` |
 
-Cross-validation uses `TimeSeriesSplit` with 5 folds to prevent data leakage. Output: 3-class probabilities (Home Win / Draw / Away Win).
+*(Gradient Boosting was evaluated and dropped — it was dominated by XGBoost in `TimeSeriesSplit` CV and is redundant with it.)*
+
+Training uses `TimeSeriesSplit` (5 folds) to prevent leakage, **exponential time-decay sample weighting** (half-life 540 days — recent matches count more), and leakage-safe median imputation fit on the training fold only.
+
+**Probability calibration** — the fitted ensemble is wrapped in `CalibratedClassifierCV` (via `FrozenEstimator`) on a held-out chronological slice, so reported probabilities match observed frequencies. This is what makes value-bet edges trustworthy; on this dataset it is roughly log-loss-neutral but improves reliability. Toggle via `model.calibration` (`sigmoid`/`isotonic`).
+
+**Hyperparameter search** — `scripts/tune_xgboost.py` runs a bounded, leakage-safe (`TimeSeriesSplit`) randomized search minimising log-loss. Report-only: it prints the best params, never mutates config.
+
+Output: 3-class probabilities (Home Win / Draw / Away Win), blended with the Dixon-Coles model below.
+
+### Dixon-Coles Score Model
+
+A **Dixon-Coles bivariate-Poisson** model (`src/models/poisson/`) models goals directly — MLE-fit attack/defense strengths per team, a global home advantage, and the low-score `rho` correction, with exponential time-decay weighting. It provides:
+
+- **Calibrated score markets** — scorelines, Over/Under (1.5/2.5/3.5), BTTS and expected goals — replacing the earlier naive independent-Poisson calculator (kept only as a fallback when the model doesn't know a team).
+- **A 1X2 distribution blended into the ensemble** — `model.poisson.blend_weight` (default `0.4`, empirically optimal via `scripts/tune_blend_weight.py`; the blend beats both the ensemble and the Poisson model alone).
 
 ### Value Bet Detection
 
-A value bet is flagged when `ML probability > bookmaker implied probability + 3%`.
+A value bet is flagged when `ML probability > bookmaker implied probability + 3%`, where the ML probability is the calibrated, Poisson-blended 1X2 output.
 
 - **Kelly Criterion** stake sizing: `f = (b×p − q) / b`, capped at 25%
 - **KL divergence** between ML and bookmaker distributions
@@ -145,7 +159,7 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 football-prediction-agent/
 ├── .github/
 │   └── workflows/
-│       ├── retrain.yml            # Weekly model retraining + HF upload
+│       ├── retrain.yml            # Weekly retrain (skips upload/redeploy if no new data)
 │       ├── run-inference.yml      # Daily inference → Supabase upload
 │       ├── deploy.yml             # Build Docker image → Render redeploy
 │       └── deploy-hf-space.yml    # Sync hf_space/ → HuggingFace Space
@@ -200,7 +214,9 @@ football-prediction-agent/
 │   │   └── ...                    # Odds scrapers (Betclic, Betano, Solverde)
 │   └── analysis/                  # Value detection, KL divergence, Poisson match stats
 ├── scripts/
-│   ├── train_model.py             # Train ML ensemble (writes seasons_trained)
+│   ├── train_model.py             # Train ensemble + calibration + Dixon-Coles
+│   ├── tune_xgboost.py            # Offline XGBoost log-loss search (report-only)
+│   ├── tune_blend_weight.py       # Offline ensemble/Poisson blend-weight sweep
 │   ├── upload_to_hf.py            # Upload model + Parquet datasets to HF
 │   ├── run_inference.py           # Offline inference → Supabase upload
 │   ├── find_value_bets.py         # Full prediction + value pipeline (local)
@@ -219,8 +235,9 @@ After each weekly retrain, the HF repo contains:
 
 ```
 {HF_REPO_ID}/
-├── ensemble_model.joblib       # Trained ensemble
-├── scaler.joblib               # StandardScaler
+├── ensemble_model.joblib       # Trained (calibrated) ensemble
+├── poisson_model.joblib        # Dixon-Coles score model (1X2 blend + markets)
+├── scaler.joblib               # Imputer + StandardScaler pipeline
 ├── feature_names.joblib        # List of 59 feature names
 ├── training_results.json       # CV scores, accuracy, seasons_trained, last_match_date
 └── datasets/
@@ -412,13 +429,15 @@ Add these in **GitHub → Settings → Secrets and variables → Actions**:
 | `RETRAIN_API_KEY` | Same value as the backend env var |
 
 #### Retrain workflow (`.github/workflows/retrain.yml`)
-Runs **every Monday at 06:00 UTC** (or manually):
+Runs **every Monday at 06:00 UTC** (or manually via *Run workflow*, with an optional `force` toggle):
 1. Sets the retraining banner flag → users see the amber banner
 2. Downloads fresh data from football-data.co.uk
-3. Retrains the model across all 8 seasons
-4. Uploads model artefacts + updated Parquet datasets to Hugging Face
-5. Triggers the inference workflow (see below)
-6. Clears the retraining banner flag
+3. Retrains the model (ensemble + calibration + Dixon-Coles) across all 8 seasons — **only if there is new data** (`ModelCacheManager.should_retrain` compares the latest match date to the model's `last_match_date`; `--force`/the `force` toggle overrides)
+4. Uploads model artefacts + updated Parquet datasets to Hugging Face — **skipped when no retraining happened**
+5. Triggers the Render redeploy — **also skipped when no retraining happened**
+6. Clears the retraining banner flag (always)
+
+> The schedule is time-based, not data-triggered. The "only when there's new data" behaviour is enforced inside `train_model.py`, which exposes a `retrained` step output so steps 4–5 are gated on it — a no-new-data week no longer redeploys needlessly.
 
 #### Inference workflow (`.github/workflows/run-inference.yml`)
 Runs **daily at 06:30 UTC**, after retraining completes, or manually:
@@ -516,8 +535,16 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 ### ML Pipeline (standalone)
 
 ```bash
-# Train the model (downloads data, writes seasons_trained to training_results.json)
+# Train the model (ensemble + calibration + Dixon-Coles Poisson; downloads
+# data, writes seasons_trained to training_results.json). Only retrains when
+# there is new data unless --force is passed.
 uv run python scripts/train_model.py
+
+# --- Offline, report-only tuning (never mutate config automatically) ---
+# Bounded, leakage-safe (TimeSeriesSplit) XGBoost log-loss search
+uv run python scripts/tune_xgboost.py
+# Sweep the ensemble/Poisson blend weight by held-out log-loss
+uv run python scripts/tune_blend_weight.py
 
 # Upload model + Parquet datasets to Hugging Face
 HF_TOKEN=hf_... HF_REPO_ID=user/repo uv run python scripts/upload_to_hf.py

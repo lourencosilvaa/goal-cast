@@ -398,7 +398,11 @@ def main() -> None:
     else:
         print("WARNING: No model found, will use odds-based fallback.")
 
-    stats_calc = MatchStatsCalculator(config.data)
+    # Reuse the predictor's Dixon-Coles model (when present) so the extended
+    # markets are derived from the calibrated scoreline distribution rather
+    # than the naive independent-Poisson fallback.
+    poisson_model = predictor.poisson if predictor is not None else None
+    stats_calc = MatchStatsCalculator(config.data, poisson_model=poisson_model)
     detector = ValueDetector(config.analysis)
 
     total_uploaded = 0

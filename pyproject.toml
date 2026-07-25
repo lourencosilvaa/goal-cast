@@ -18,6 +18,7 @@ dependencies = [
     "pandas>=2.1.0",
     "numpy>=1.24.0",
     "scikit-learn>=1.3.0",
+    "scipy>=1.11.0",
     "xgboost>=2.0.0",
     "beautifulsoup4>=4.12.0",
     "joblib>=1.3.0",
@@ -44,6 +45,7 @@ ml = [
     "pandas>=2.1.0",
     "numpy>=1.24.0",
     "scikit-learn>=1.3.0",
+    "scipy>=1.11.0",
     "xgboost>=2.0.0",
     "beautifulsoup4>=4.12.0",
     "joblib>=1.3.0",
@@ -83,6 +85,12 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+# scipy ships no type stubs; ignore its missing-import noise the same way
+# the rest of the scientific stack (sklearn, xgboost) is treated.
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
