@@ -1,20 +1,23 @@
 from pathlib import Path
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import (
-    GradientBoostingClassifier,
     RandomForestClassifier,
     VotingClassifier,
 )
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, log_loss
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from config.config_loader import ModelConfig
+from src.models.time_weighting import TimeDecayWeighter
 
 
 class ModelTrainer:
@@ -23,11 +26,44 @@ class ModelTrainer:
     and builds an ensemble.
     """
 
-    def __init__(self, config: ModelConfig) -> None:
+    def __init__(
+        self,
+        config: ModelConfig,
+        weighter: TimeDecayWeighter | None = None,
+    ) -> None:
         self.config = config
-        self.scaler = StandardScaler()
+        # Preprocessor: median imputation + scaling composed into one
+        # Pipeline so both are fit on the TRAINING split only (no leakage).
+        self.scaler: Pipeline = self._make_preprocessor()
         self.ensemble: VotingClassifier | None = None
         self.feature_names: list[str] = []
+        # Optional exponential time-decay sample weighting (recent matches
+        # weighted more). When None, all samples are weighted equally.
+        self.weighter = weighter
+
+    def _train_weights(
+        self, dates: pd.Series | None, index: np.ndarray
+    ) -> np.ndarray | None:
+        """Compute sample weights for a training slice, or None if disabled."""
+        if dates is None or self.weighter is None or not self.weighter.enabled:
+            return None
+        all_weights = self.weighter.compute_weights(dates)
+        train_weights: np.ndarray = all_weights[index]
+        return train_weights
+
+    @staticmethod
+    def _make_preprocessor() -> Pipeline:
+        """Build the leakage-safe preprocessing pipeline.
+
+        Median imputation is fit on the training fold only, so held-out
+        rows never influence the imputed values.
+        """
+        return Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler()),
+            ]
+        )
 
     def prepare_data(
         self, df: pd.DataFrame
@@ -76,12 +112,13 @@ class ModelTrainer:
         X = df[feature_cols].copy()
         y = df["Result"].copy()
 
-        X = X.fillna(X.median())
-
+        # NaNs are intentionally left in place: median imputation happens
+        # inside the fitted preprocessing Pipeline (train-split only) to
+        # avoid leaking held-out statistics into training.
         self.feature_names = feature_cols
         return X, y, feature_cols
 
-    def _build_models(self) -> dict[str, object]:
+    def _build_models(self) -> dict[str, Any]:
         """Build individual model instances from config."""
         lr_cfg = self.config.logistic_regression
         rf_cfg = self.config.random_forest
@@ -109,16 +146,18 @@ class ModelTrainer:
                 random_state=self.config.random_state,
                 eval_metric="mlogloss",
             ),
-            "Gradient Boosting": GradientBoostingClassifier(
-                n_estimators=150,
-                max_depth=4,
-                learning_rate=0.08,
-                random_state=self.config.random_state,
-            ),
+            # Gradient Boosting was evaluated but removed: in TimeSeriesSplit
+            # CV it had the worst log-loss and highest variance of all
+            # candidates and is redundant with XGBoost (same algorithm
+            # family). It was never part of the soft-voting ensemble.
         }
 
     def cross_validate(
-        self, X: pd.DataFrame, y: pd.Series, n_splits: int = 5
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        n_splits: int = 5,
+        dates: pd.Series | None = None,
     ) -> dict[str, dict[str, float]]:
         """Train and evaluate multiple models with TimeSeriesSplit."""
         tscv = TimeSeriesSplit(n_splits=n_splits)
@@ -138,10 +177,11 @@ class ModelTrainer:
                 X_train_scaled = self.scaler.fit_transform(X_train)
                 X_test_scaled = self.scaler.transform(X_test)
 
-                model.fit(X_train_scaled, y_train)  # type: ignore[union-attr]
+                sample_weight = self._train_weights(dates, train_idx)
+                model.fit(X_train_scaled, y_train, sample_weight=sample_weight)
 
-                preds = model.predict(X_test_scaled)  # type: ignore[union-attr]
-                proba = model.predict_proba(X_test_scaled)  # type: ignore[union-attr]
+                preds = model.predict(X_test_scaled)
+                proba = model.predict_proba(X_test_scaled)
 
                 fold_accuracies.append(float(accuracy_score(y_test, preds)))
                 fold_log_losses.append(float(log_loss(y_test, proba)))
@@ -166,7 +206,12 @@ class ModelTrainer:
 
         return results
 
-    def build_ensemble(self, X: pd.DataFrame, y: pd.Series) -> dict[str, float]:
+    def build_ensemble(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        dates: pd.Series | None = None,
+    ) -> dict[str, float]:
         """Build and train an ensemble model with soft voting."""
         lr_cfg = self.config.logistic_regression
         rf_cfg = self.config.random_forest
@@ -217,7 +262,8 @@ class ModelTrainer:
         X_train_scaled = self.scaler.fit_transform(X_train)
         X_test_scaled = self.scaler.transform(X_test)
 
-        self.ensemble.fit(X_train_scaled, y_train)
+        sample_weight = self._train_weights(dates, np.arange(split_idx))
+        self.ensemble.fit(X_train_scaled, y_train, sample_weight=sample_weight)
 
         preds = self.ensemble.predict(X_test_scaled)
         proba = self.ensemble.predict_proba(X_test_scaled)
@@ -229,9 +275,10 @@ class ModelTrainer:
         print("  ENSEMBLE (Soft Voting)")
         print(f"  Accuracy:  {accuracy:.4f}")
         print(f"  Log Loss:  {logloss:.4f}")
-        print(
-            f"\n{classification_report(y_test, preds, target_names=['Away Win', 'Draw', 'Home Win'])}"
+        report = classification_report(
+            y_test, preds, target_names=["Away Win", "Draw", "Home Win"]
         )
+        print(f"\n{report}")
 
         return {"accuracy": accuracy, "log_loss": logloss}
 

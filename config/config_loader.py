@@ -64,6 +64,13 @@ class EnsembleConfig(BaseModel):
     weights: list[int]
 
 
+class TimeDecayConfig(BaseModel):
+    """Exponential time-decay weighting for training samples."""
+
+    enabled: bool
+    half_life_days: float
+
+
 class ModelConfig(BaseModel):
     test_size: float
     random_state: int
@@ -71,11 +78,7 @@ class ModelConfig(BaseModel):
     random_forest: RandomForestConfig
     xgboost: XGBoostConfig
     ensemble: EnsembleConfig
-
-
-class ScraperSiteConfig(BaseModel):
-    base_url: str
-    enabled: bool
+    time_decay: TimeDecayConfig | None = None
 
 
 class FlashScoreConfig(BaseModel):
@@ -92,9 +95,6 @@ class ScrapersConfig(BaseModel):
     request_timeout: int
     rate_limit_seconds: float
     user_agent: str
-    betclic: ScraperSiteConfig
-    betano: ScraperSiteConfig
-    solverde: ScraperSiteConfig
     flashscore: FlashScoreConfig = FlashScoreConfig(
         base_url="https://www.flashscore.com",
         api_url="https://d.flashscore.com/x/feed",
@@ -145,6 +145,7 @@ class HuggingFaceConfig(BaseModel):
 class SpaceConfig(BaseModel):
     huggingface: HuggingFaceConfig
     inference: InferenceConfig
+
 
 class Config(BaseModel):
     app: AppConfig

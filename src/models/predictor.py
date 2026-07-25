@@ -4,7 +4,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 
 
 @dataclass
@@ -42,7 +42,7 @@ class MatchPredictor:
     def __init__(self, model_path: str | Path) -> None:
         path = Path(model_path)
         self.ensemble = joblib.load(path / "ensemble_model.joblib")
-        self.scaler: StandardScaler = joblib.load(path / "scaler.joblib")
+        self.scaler: Pipeline = joblib.load(path / "scaler.joblib")
         self.feature_names: list[str] = joblib.load(path / "feature_names.joblib")
 
     def predict(self, features: pd.DataFrame) -> list[MatchPrediction]:

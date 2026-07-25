@@ -15,6 +15,7 @@ data:
     - "2021"
     - "1920"
     - "1819"
+    - "1718"
   leagues:
     E0: "Premier League"
     SP1: "La Liga"
@@ -84,20 +85,17 @@ model:
       - 1
       - 1
       - 2
+  # Exponential time-decay weighting: recent matches count more, so deeper
+  # season history (see data.seasons) adds signal without dominating.
+  # A match `half_life_days` old is weighted 0.5; twice that, 0.25; etc.
+  time_decay:
+    enabled: true
+    half_life_days: 540
 
 scrapers:
   request_timeout: 15
   rate_limit_seconds: 1.0
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-  betclic:
-    base_url: "https://www.betclic.pt/futebol-s1"
-    enabled: true
-  betano:
-    base_url: "https://www.betano.pt/sport/futebol/jogos-de-hoje/"
-    enabled: true
-  solverde:
-    base_url: "https://www.solverde.pt/apostas/futebol"
-    enabled: true
   flashscore:
     base_url: "https://www.flashscore.com"
     api_url: "https://d.flashscore.com/x/feed"

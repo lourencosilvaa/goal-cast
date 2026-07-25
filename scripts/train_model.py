@@ -20,6 +20,7 @@ from src.models.data_loader import FootballDataLoader
 from src.models.elo import FootballELO
 from src.models.feature_engineer import FeatureEngineer
 from src.models.model_cache_manager import ModelCacheManager
+from src.models.time_weighting import TimeDecayWeighter
 from src.models.trainer import ModelTrainer
 
 
@@ -95,19 +96,28 @@ def main() -> None:
 
     # Train models
     print("\n=== Training Models ===")
-    trainer = ModelTrainer(config.model)
+    weighter = (
+        TimeDecayWeighter(config.model.time_decay)
+        if config.model.time_decay
+        else None
+    )
+    if weighter and weighter.enabled:
+        half_life = config.model.time_decay.half_life_days
+        print(f"Time-decay weighting enabled (half-life: {half_life:.0f} days)")
+    trainer = ModelTrainer(config.model, weighter=weighter)
     X, y, feature_names = trainer.prepare_data(featured_data)
+    dates = featured_data["Date"]
 
     print(f"\nFeatures: {len(feature_names)}")
     print(f"Samples: {len(X)}")
 
     # Cross-validation
     print("\n=== Cross-Validation ===")
-    cv_results = trainer.cross_validate(X, y)
+    cv_results = trainer.cross_validate(X, y, dates=dates)
 
     # Build ensemble
     print("\n=== Building Ensemble ===")
-    ensemble_results = trainer.build_ensemble(X, y)
+    ensemble_results = trainer.build_ensemble(X, y, dates=dates)
 
     # Save model
     last_match_date_str = latest_date.strftime("%Y-%m-%d") if latest_date and not pd.isna(latest_date) else None
