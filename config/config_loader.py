@@ -71,6 +71,29 @@ class TimeDecayConfig(BaseModel):
     half_life_days: float
 
 
+class CalibrationConfig(BaseModel):
+    """Probability calibration of the fitted ensemble.
+
+    Calibration is fit on a held-out chronological slice (never the
+    training rows) so the corrected probabilities are leakage-safe.
+    """
+
+    enabled: bool = False
+    method: str = "sigmoid"  # "sigmoid" (Platt) or "isotonic"
+    calibration_fraction: float = 0.15
+
+
+class XGBSearchConfig(BaseModel):
+    """Bounded, leakage-safe XGBoost log-loss hyperparameter search."""
+
+    enabled: bool = True
+    n_iter: int = 20
+    n_splits: int = 5
+    # int | float union so integer params (n_estimators, max_depth) stay
+    # integers while continuous params (learning_rate, subsample) stay floats.
+    param_grid: dict[str, list[int | float]] = {}
+
+
 class ModelConfig(BaseModel):
     test_size: float
     random_state: int
@@ -79,6 +102,8 @@ class ModelConfig(BaseModel):
     xgboost: XGBoostConfig
     ensemble: EnsembleConfig
     time_decay: TimeDecayConfig | None = None
+    calibration: CalibrationConfig | None = None
+    xgb_search: XGBSearchConfig | None = None
 
 
 class FlashScoreConfig(BaseModel):

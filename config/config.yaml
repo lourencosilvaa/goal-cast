@@ -91,6 +91,27 @@ model:
   time_decay:
     enabled: true
     half_life_days: 540
+  # Probability calibration: the fitted ensemble is calibrated on a held-out
+  # chronological slice (never the training rows) so reported probabilities
+  # match observed frequencies. This is what makes value-bet edges trustworthy.
+  # method: "sigmoid" (Platt, safer for smaller data) or "isotonic".
+  calibration:
+    enabled: true
+    method: "sigmoid"
+    calibration_fraction: 0.15
+  # Bounded, leakage-safe XGBoost log-loss search (offline, report-only).
+  # Run via: uv run python scripts/tune_xgboost.py
+  # Uses TimeSeriesSplit so no future match leaks into a past fold.
+  xgb_search:
+    enabled: true
+    n_iter: 25
+    n_splits: 5
+    param_grid:
+      n_estimators: [100, 200, 300, 400]
+      max_depth: [3, 4, 5, 6]
+      learning_rate: [0.01, 0.03, 0.05, 0.1]
+      subsample: [0.7, 0.8, 0.9, 1.0]
+      colsample_bytree: [0.7, 0.8, 0.9, 1.0]
 
 scrapers:
   request_timeout: 15

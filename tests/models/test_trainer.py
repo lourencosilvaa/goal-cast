@@ -10,6 +10,7 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from config.config_loader import (
+    CalibrationConfig,
     EnsembleConfig,
     LogisticRegressionConfig,
     ModelConfig,
@@ -21,7 +22,10 @@ from src.models.time_weighting import TimeDecayWeighter
 from src.models.trainer import ModelTrainer
 
 
-def _make_model_config(test_size: float = 0.2) -> ModelConfig:
+def _make_model_config(
+    test_size: float = 0.2,
+    calibration: CalibrationConfig | None = None,
+) -> ModelConfig:
     return ModelConfig(
         test_size=test_size,
         random_state=42,
@@ -37,6 +41,7 @@ def _make_model_config(test_size: float = 0.2) -> ModelConfig:
             colsample_bytree=0.8,
         ),
         ensemble=EnsembleConfig(voting="soft", weights=[1, 1, 2]),
+        calibration=calibration,
     )
 
 
@@ -136,6 +141,129 @@ class TestSaveLoadRoundTrip:
         assert "imputer" in reloaded.scaler.named_steps
         assert reloaded.feature_names == list(X.columns)
         assert reloaded.ensemble is not None
+
+
+def _calibration_xy(
+    n: int = 150,
+) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
+    """Larger, learnable synthetic set for base/calibration/test slices."""
+    rng = np.random.default_rng(0)
+    signal = rng.normal(size=n)
+    # Target correlates with the signal so calibration has something to fit.
+    y = pd.Series(np.clip(((signal + 1.5) // 1).astype(int), 0, 2))
+    X = pd.DataFrame(
+        {
+            "home_a": signal + rng.normal(scale=0.3, size=n),
+            "home_b": rng.normal(size=n),
+        }
+    )
+    ref = pd.Timestamp("2023-01-01")
+    dates = pd.Series([ref + pd.Timedelta(days=i) for i in range(n)])
+    return X, y, dates
+
+
+class TestCalibration:
+    def test_ensemble_is_calibrated_when_enabled(self) -> None:
+        from sklearn.calibration import CalibratedClassifierCV
+
+        X, y, dates = _calibration_xy()
+        cfg = _make_model_config(
+            test_size=0.2,
+            calibration=CalibrationConfig(
+                enabled=True, method="sigmoid", calibration_fraction=0.2
+            ),
+        )
+        trainer = ModelTrainer(cfg)
+        result = trainer.build_ensemble(X, y, dates=dates)
+
+        assert isinstance(trainer.ensemble, CalibratedClassifierCV)
+        # Calibrated probabilities are still valid and usable downstream.
+        proba = trainer.ensemble.predict_proba(trainer.scaler.transform(X))
+        assert proba.shape[1] == 3
+        np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-6)
+
+    def test_records_before_and_after_log_loss(self) -> None:
+        X, y, dates = _calibration_xy()
+        cfg = _make_model_config(
+            test_size=0.2,
+            calibration=CalibrationConfig(
+                enabled=True, method="sigmoid", calibration_fraction=0.2
+            ),
+        )
+        result = ModelTrainer(cfg).build_ensemble(X, y, dates=dates)
+
+        assert "log_loss" in result
+        assert "log_loss_uncalibrated" in result
+        assert "brier" in result
+
+    def test_disabled_calibration_keeps_plain_ensemble(self) -> None:
+        from sklearn.ensemble import VotingClassifier
+
+        X, y, _ = _calibration_xy()
+        cfg = _make_model_config(
+            test_size=0.2,
+            calibration=CalibrationConfig(enabled=False),
+        )
+        trainer = ModelTrainer(cfg)
+        trainer.build_ensemble(X, y)
+        assert isinstance(trainer.ensemble, VotingClassifier)
+
+    def test_isotonic_method_supported(self) -> None:
+        from sklearn.calibration import CalibratedClassifierCV
+
+        X, y, dates = _calibration_xy()
+        cfg = _make_model_config(
+            test_size=0.2,
+            calibration=CalibrationConfig(
+                enabled=True, method="isotonic", calibration_fraction=0.25
+            ),
+        )
+        trainer = ModelTrainer(cfg)
+        trainer.build_ensemble(X, y, dates=dates)
+        assert isinstance(trainer.ensemble, CalibratedClassifierCV)
+
+    def test_too_small_calibration_slice_falls_back(self) -> None:
+        """A tiny calibration fraction skips calibration, not crash."""
+        from sklearn.ensemble import VotingClassifier
+
+        X, y, dates = _calibration_xy(n=60)
+        cfg = _make_model_config(
+            test_size=0.2,
+            calibration=CalibrationConfig(
+                enabled=True, method="sigmoid", calibration_fraction=0.01
+            ),
+        )
+        trainer = ModelTrainer(cfg)
+        result = trainer.build_ensemble(X, y, dates=dates)
+        assert isinstance(trainer.ensemble, VotingClassifier)
+        assert "log_loss_uncalibrated" not in result
+
+    def test_calibrated_model_survives_save_load(self, tmp_path) -> None:
+        from sklearn.calibration import CalibratedClassifierCV
+
+        X, y, dates = _calibration_xy()
+        cfg = _make_model_config(
+            test_size=0.2,
+            calibration=CalibrationConfig(
+                enabled=True, method="sigmoid", calibration_fraction=0.2
+            ),
+        )
+        trainer = ModelTrainer(cfg)
+        trainer.feature_names = list(X.columns)
+        trainer.build_ensemble(X, y, dates=dates)
+        trainer.save_model(tmp_path)
+
+        reloaded = ModelTrainer(cfg)
+        reloaded.load_model(tmp_path)
+        assert isinstance(reloaded.ensemble, CalibratedClassifierCV)
+
+    def test_multiclass_brier_perfect_prediction_is_zero(self) -> None:
+        y_true = pd.Series([0, 1, 2])
+        proba = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        brier = ModelTrainer._multiclass_brier(
+            y_true, proba, np.array([0, 1, 2])
+        )
+        assert brier == 0.0
 
 
 class TestModelSelection:

@@ -4,10 +4,12 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import (
     RandomForestClassifier,
     VotingClassifier,
 )
+from sklearn.frozen import FrozenEstimator
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, log_loss
@@ -255,32 +257,107 @@ class ModelTrainer:
             weights=ens_cfg.weights,
         )
 
-        split_idx = int(len(X) * (1 - self.config.test_size))
-        X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
-        y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+        n = len(X)
+        n_test = int(n * self.config.test_size)
+        base_end, calib_end = self._split_indices(n, n_test, y)
+        use_calibration = calib_end > base_end
 
-        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_base, y_base = X.iloc[:base_end], y.iloc[:base_end]
+        X_test, y_test = X.iloc[calib_end:], y.iloc[calib_end:]
+
+        X_base_scaled = self.scaler.fit_transform(X_base)
         X_test_scaled = self.scaler.transform(X_test)
 
-        sample_weight = self._train_weights(dates, np.arange(split_idx))
-        self.ensemble.fit(X_train_scaled, y_train, sample_weight=sample_weight)
+        sample_weight = self._train_weights(dates, np.arange(base_end))
+        self.ensemble.fit(X_base_scaled, y_base, sample_weight=sample_weight)
+
+        # Uncalibrated test metrics (also the final metrics when calibration
+        # is disabled).
+        proba = self.ensemble.predict_proba(X_test_scaled)
+        logloss_uncal = float(log_loss(y_test, proba, labels=self.ensemble.classes_))
+
+        results: dict[str, float] = {}
+        if use_calibration:
+            calib_cfg = self.config.calibration
+            assert calib_cfg is not None
+            X_calib = X.iloc[base_end:calib_end]
+            y_calib = y.iloc[base_end:calib_end]
+            X_calib_scaled = self.scaler.transform(X_calib)
+
+            # FrozenEstimator wraps the already-fitted ensemble so
+            # CalibratedClassifierCV calibrates it without refitting
+            # (the modern replacement for the removed cv="prefit").
+            calibrated = CalibratedClassifierCV(
+                FrozenEstimator(self.ensemble), method=calib_cfg.method
+            )
+            calibrated.fit(X_calib_scaled, y_calib)
+            self.ensemble = calibrated
+
+            proba = self.ensemble.predict_proba(X_test_scaled)
+            results["log_loss_uncalibrated"] = logloss_uncal
+            results["brier"] = self._multiclass_brier(
+                y_test, proba, self.ensemble.classes_
+            )
 
         preds = self.ensemble.predict(X_test_scaled)
-        proba = self.ensemble.predict_proba(X_test_scaled)
-
         accuracy = float(accuracy_score(y_test, preds))
-        logloss = float(log_loss(y_test, proba))
+        logloss = float(log_loss(y_test, proba, labels=self.ensemble.classes_))
+        results["accuracy"] = accuracy
+        results["log_loss"] = logloss
 
         print(f"\n{'=' * 60}")
-        print("  ENSEMBLE (Soft Voting)")
+        title = (
+            "ENSEMBLE (Soft Voting, Calibrated)"
+            if use_calibration
+            else ("ENSEMBLE (Soft Voting)")
+        )
+        print(f"  {title}")
         print(f"  Accuracy:  {accuracy:.4f}")
-        print(f"  Log Loss:  {logloss:.4f}")
+        if use_calibration:
+            print(f"  Log Loss:  {logloss:.4f} (uncalibrated: {logloss_uncal:.4f})")
+        else:
+            print(f"  Log Loss:  {logloss:.4f}")
         report = classification_report(
             y_test, preds, target_names=["Away Win", "Draw", "Home Win"]
         )
         print(f"\n{report}")
 
-        return {"accuracy": accuracy, "log_loss": logloss}
+        return results
+
+    def _split_indices(self, n: int, n_test: int, y: pd.Series) -> tuple[int, int]:
+        """Compute (base_end, calib_end) chronological split boundaries.
+
+        When calibration is disabled or the calibration slice would be too
+        small to fit reliably, base_end == calib_end (no calibration slice)
+        and behaviour matches the original single-split trainer.
+        """
+        calib_cfg = self.config.calibration
+        if calib_cfg is None or not calib_cfg.enabled:
+            return n - n_test, n - n_test
+
+        n_calib = int(n * calib_cfg.calibration_fraction)
+        # Need enough rows to fit a calibrator per class; otherwise skip.
+        min_calib = max(2 * int(y.nunique()), 1)
+        if n_calib < min_calib:
+            print(
+                "  [calibration] insufficient rows "
+                f"({n_calib} < {min_calib}); skipping calibration."
+            )
+            return n - n_test, n - n_test
+
+        base_end = n - n_test - n_calib
+        return base_end, n - n_test
+
+    @staticmethod
+    def _multiclass_brier(
+        y_true: pd.Series, proba: np.ndarray, classes: np.ndarray
+    ) -> float:
+        """Multiclass Brier score: mean squared error vs. one-hot targets."""
+        class_to_col = {c: i for i, c in enumerate(classes)}
+        onehot = np.zeros_like(proba)
+        for row, label in enumerate(y_true.to_numpy()):
+            onehot[row, class_to_col[label]] = 1.0
+        return float(np.mean(np.sum((proba - onehot) ** 2, axis=1)))
 
     def save_model(self, path: str | Path, last_match_date: str | None = None) -> None:
         """Save the trained ensemble and scaler."""
