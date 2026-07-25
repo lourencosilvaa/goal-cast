@@ -60,16 +60,19 @@ class TestFetchFlashscoreFixtures:
         assert result[0].away_team == "Man City"
 
     @patch("src.scrapers.fixtures_fetcher._build_flashscore_scraper")
-    def test_b365_odds_are_zero_for_flashscore_source(self, mock_build):
+    def test_b365_odds_are_none_for_flashscore_source(self, mock_build):
         mock_scraper = MagicMock()
         mock_scraper.scrape_fixtures.return_value = [_make_fs_fixture()]
         mock_build.return_value = mock_scraper
 
         result = _fetch_flashscore_fixtures("28/04/2024", leagues=["E0"])
 
-        assert result[0].b365_home == 0.0
-        assert result[0].b365_draw == 0.0
-        assert result[0].b365_away == 0.0
+        # FlashScore provides no odds — surfaced as N/A (None), not a
+        # misleading 0.0.
+        assert result[0].b365_home is None
+        assert result[0].b365_draw is None
+        assert result[0].b365_away is None
+        assert result[0].has_odds is False
 
     @patch("src.scrapers.fixtures_fetcher._build_flashscore_scraper")
     def test_filters_by_league(self, mock_build):

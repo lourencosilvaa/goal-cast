@@ -57,8 +57,8 @@ export interface MatchPrediction {
   probabilities: Probabilities;
   predicted_outcome: string;
   confidence: number;
-  odds: Odds;
-  implied_probabilities: Odds;
+  odds: Odds | null;
+  implied_probabilities: Odds | null;
   expected_goals: ExpectedGoals | null;
   over_under: OverUnder | null;
   btts: Btts | null;

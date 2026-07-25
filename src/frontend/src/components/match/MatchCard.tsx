@@ -117,9 +117,9 @@ export function MatchCard({ match, index }: MatchCardProps) {
 
         {/* Odds */}
         <div className="grid grid-cols-3 gap-2 mb-4">
-          <OddsBadge label="Casa" odds={match.odds.home} implied={match.implied_probabilities.home} ml={p.home_win} />
-          <OddsBadge label="Empate" odds={match.odds.draw} implied={match.implied_probabilities.draw} ml={p.draw} />
-          <OddsBadge label="Fora" odds={match.odds.away} implied={match.implied_probabilities.away} ml={p.away_win} />
+          <OddsBadge label="Casa" odds={match.odds?.home ?? null} implied={match.implied_probabilities?.home ?? null} ml={p.home_win} />
+          <OddsBadge label="Empate" odds={match.odds?.draw ?? null} implied={match.implied_probabilities?.draw ?? null} ml={p.draw} />
+          <OddsBadge label="Fora" odds={match.odds?.away ?? null} implied={match.implied_probabilities?.away ?? null} ml={p.away_win} />
         </div>
 
         {/* Value bets */}
@@ -308,11 +308,12 @@ function OddsBadge({
   ml,
 }: {
   label: string;
-  odds: number;
-  implied: number;
+  odds: number | null;
+  implied: number | null;
   ml: number;
 }) {
-  const isValue = ml > implied + 0.03;
+  const hasOdds = odds != null && implied != null;
+  const isValue = hasOdds && ml > implied + 0.03;
   return (
     <div
       className={`text-center px-2 py-2 rounded-xl border ${
@@ -322,14 +323,20 @@ function OddsBadge({
       }`}
     >
       <p className="text-[10px] text-white/30 mb-0.5">{label}</p>
-      <p className="text-sm font-semibold text-white/80">{odds.toFixed(2)}</p>
-      <p className="text-[10px] text-white/30">
-        B365 {pct(implied)}
-      </p>
-      {isValue && (
-        <p className="text-[10px] text-green-400 font-medium mt-0.5">
-          ML {pct(ml)}
-        </p>
+      {hasOdds ? (
+        <>
+          <p className="text-sm font-semibold text-white/80">
+            {odds.toFixed(2)}
+          </p>
+          <p className="text-[10px] text-white/30">B365 {pct(implied)}</p>
+          {isValue && (
+            <p className="text-[10px] text-green-400 font-medium mt-0.5">
+              ML {pct(ml)}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="text-sm font-semibold text-white/40">N/A</p>
       )}
     </div>
   );
