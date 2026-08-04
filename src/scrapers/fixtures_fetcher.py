@@ -41,7 +41,12 @@ DIVISION_MAP = {
 
 @dataclass
 class Fixture:
-    """A scheduled match with bookmaker odds from the fixtures CSV."""
+    """A scheduled match with optional Bet365 odds from the fixtures CSV.
+
+    Odds may be ``None`` when the source provides no price for the match
+    (e.g. FlashScore fallback fixtures). Absent odds are surfaced as N/A
+    downstream rather than a misleading ``0.0``.
+    """
 
     division: str
     league: str
@@ -49,18 +54,26 @@ class Fixture:
     time: str
     home_team: str
     away_team: str
-    b365_home: float
-    b365_draw: float
-    b365_away: float
+    b365_home: float | None
+    b365_draw: float | None
+    b365_away: float | None
+
+    @property
+    def has_odds(self) -> bool:
+        """True only when all three Bet365 odds are present and positive."""
+        return all(
+            o is not None and o > 0
+            for o in (self.b365_home, self.b365_draw, self.b365_away)
+        )
 
     def implied_probabilities(self) -> dict[str, float]:
-        """Convert B365 odds to normalized implied probabilities."""
-        raw_h = 1 / self.b365_home if self.b365_home > 0 else 0
-        raw_d = 1 / self.b365_draw if self.b365_draw > 0 else 0
-        raw_a = 1 / self.b365_away if self.b365_away > 0 else 0
+        """Normalized implied probabilities, or ``{}`` when odds are absent."""
+        if not self.has_odds:
+            return {}
+        raw_h = 1 / self.b365_home  # type: ignore[operator]
+        raw_d = 1 / self.b365_draw  # type: ignore[operator]
+        raw_a = 1 / self.b365_away  # type: ignore[operator]
         total = raw_h + raw_d + raw_a
-        if total == 0:
-            return {"home": 0, "draw": 0, "away": 0}
         return {
             "home": raw_h / total,
             "draw": raw_d / total,
@@ -75,6 +88,7 @@ class Fixture:
             "time": self.time,
             "home_team": self.home_team,
             "away_team": self.away_team,
+            "has_odds": self.has_odds,
             "b365_odds": {
                 "home": self.b365_home,
                 "draw": self.b365_draw,
@@ -82,6 +96,17 @@ class Fixture:
             },
             "implied_probabilities": self.implied_probabilities(),
         }
+
+
+def _parse_odd(raw: object) -> float | None:
+    """Parse a raw odds cell into a positive float, or ``None`` if absent."""
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return None
+    return value if value > 0 else None
 
 
 def _get_fixtures_csv_text() -> str:
@@ -133,12 +158,9 @@ def fetch_fixtures(
         # Only include leagues we support (or all if no filter)
         league_name = DIVISION_MAP.get(div, div)
 
-        try:
-            b365_h = float(row.get("B365H", 0) or 0)
-            b365_d = float(row.get("B365D", 0) or 0)
-            b365_a = float(row.get("B365A", 0) or 0)
-        except (ValueError, TypeError):
-            b365_h = b365_d = b365_a = 0.0
+        b365_h = _parse_odd(row.get("B365H"))
+        b365_d = _parse_odd(row.get("B365D"))
+        b365_a = _parse_odd(row.get("B365A"))
 
         fixtures.append(
             Fixture(
@@ -289,9 +311,9 @@ def _fetch_flashscore_fixtures(
                             ),
                             home_team=fs.home_team,
                             away_team=fs.away_team,
-                            b365_home=0.0,
-                            b365_draw=0.0,
-                            b365_away=0.0,
+                            b365_home=None,
+                            b365_draw=None,
+                            b365_away=None,
                         )
                     )
             except FlashScoreUnavailableError:

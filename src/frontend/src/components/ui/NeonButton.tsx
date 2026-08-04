@@ -19,10 +19,10 @@ export function NeonButton({
 }: NeonButtonProps) {
   const variants: Record<string, string> = {
     primary:
-      'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-[0_0_15px_rgba(34,197,94,0.3)] hover:shadow-[0_0_25px_rgba(34,197,94,0.5)]',
+      'bg-accent-blue text-white shadow-[0_0_15px_rgba(59,130,246,0.25)] hover:shadow-[0_0_25px_rgba(59,130,246,0.4)]',
     secondary:
-      'glass border border-white/10 text-white/80 hover:border-green-500/30 hover:text-white',
-    ghost: 'text-white/60 hover:text-white/90 hover:bg-white/5',
+      'glass border border-line text-fg-muted hover:text-fg hover:border-accent-blue/40',
+    ghost: 'text-fg-subtle hover:text-fg hover:bg-card-2',
   };
 
   const sizes: Record<string, string> = {

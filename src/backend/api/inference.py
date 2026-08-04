@@ -25,7 +25,9 @@ def _load_teams_from_cache() -> dict[str, list[str]]:
         if not files:
             continue
         try:
-            df = pd.read_csv(files[0], encoding="utf-8", usecols=["HomeTeam", "AwayTeam"])
+            df = pd.read_csv(
+                files[0], encoding="utf-8", usecols=["HomeTeam", "AwayTeam"]
+            )
             teams = sorted(set(df["HomeTeam"].unique()) | set(df["AwayTeam"].unique()))
             result[league] = teams
         except Exception:
@@ -69,7 +71,9 @@ async def run_inference(
     """Run on-demand ML predictions against the HuggingFace-hosted model."""
     league_codes = [league_code] if league_code else None
     try:
-        predictions = await inference_svc.run(target_date=date, league_codes=league_codes)
+        predictions = await inference_svc.run(
+            target_date=date, league_codes=league_codes
+        )
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)

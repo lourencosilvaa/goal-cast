@@ -40,12 +40,6 @@ class TestConfigLoader:
         assert config.model.test_size == 0.2
         assert config.model.random_state == 42
 
-    def test_config_scrapers_enabled(self, config_path: Path):
-        config = load_config(config_path)
-        assert config.scrapers.betclic.enabled is True
-        assert config.scrapers.betano.enabled is True
-        assert config.scrapers.solverde.enabled is True
-
     def test_config_analysis_thresholds(self, config_path: Path):
         config = load_config(config_path)
         assert config.analysis.value_threshold > 0

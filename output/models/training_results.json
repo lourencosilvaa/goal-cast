@@ -1,36 +1,32 @@
 {
   "cross_validation": {
     "Logistic Regression": {
-      "accuracy_mean": 0.5039388594944151,
-      "accuracy_std": 0.014301068578254313,
-      "log_loss_mean": 1.0074097563772493,
-      "log_loss_std": 0.017187744276257945
+      "accuracy_mean": 0.49616624865639547,
+      "accuracy_std": 0.0036143375744660702,
+      "log_loss_mean": 1.0042549954239681,
+      "log_loss_std": 0.004979948602722601
     },
     "Random Forest": {
-      "accuracy_mean": 0.5088771310993534,
-      "accuracy_std": 0.010888500320084865,
-      "log_loss_mean": 0.9969617898998239,
-      "log_loss_std": 0.01210743798549692
+      "accuracy_mean": 0.5010390541024722,
+      "accuracy_std": 0.005980836005694107,
+      "log_loss_mean": 0.9985471255870577,
+      "log_loss_std": 0.0049314571067452405
     },
     "XGBoost": {
-      "accuracy_mean": 0.5193415637860082,
-      "accuracy_std": 0.01637501738605875,
-      "log_loss_mean": 1.0124108554166822,
-      "log_loss_std": 0.03623968485324219
-    },
-    "Gradient Boosting": {
-      "accuracy_mean": 0.5045267489711934,
-      "accuracy_std": 0.023959363320852654,
-      "log_loss_mean": 1.0364385773202003,
-      "log_loss_std": 0.05467481922337633
+      "accuracy_mean": 0.5273378717305626,
+      "accuracy_std": 0.008009785943285445,
+      "log_loss_mean": 0.9859450319937109,
+      "log_loss_std": 0.008871311704308337
     }
   },
   "ensemble": {
-    "accuracy": 0.5308521057786484,
-    "log_loss": 0.9876523045265218
+    "log_loss_uncalibrated": 0.9864954771086777,
+    "brier": 0.5896347561511529,
+    "accuracy": 0.5267243953418931,
+    "log_loss": 0.989482585372237
   },
   "features_count": 59,
-  "samples_count": 10210,
+  "samples_count": 16748,
   "feature_names": [
     "home_avg_GF",
     "away_avg_GF",
@@ -91,5 +87,17 @@
     "elo_diff",
     "elo_expected_home",
     "elo_expected_away"
+  ],
+  "last_match_date": "2026-05-24",
+  "seasons_trained": [
+    "1718",
+    "1819",
+    "1920",
+    "2021",
+    "2122",
+    "2223",
+    "2324",
+    "2425",
+    "2526"
   ]
 }

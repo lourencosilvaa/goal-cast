@@ -9,10 +9,13 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import joblib
 
 from config.config_loader import load_config
 from src.models.data_cleaner import DataCleaner
@@ -20,7 +23,22 @@ from src.models.data_loader import FootballDataLoader
 from src.models.elo import FootballELO
 from src.models.feature_engineer import FeatureEngineer
 from src.models.model_cache_manager import ModelCacheManager
+from src.models.poisson.dixon_coles import DixonColesModel
+from src.models.time_weighting import TimeDecayWeighter
 from src.models.trainer import ModelTrainer
+
+
+def _emit_retrained(value: bool) -> None:
+    """Signal to CI whether training actually ran.
+
+    Writes ``retrained=true|false`` to the GitHub Actions step output so the
+    workflow can skip the upload + redeploy steps when nothing was retrained
+    (a no-new-data week). No-op outside GitHub Actions.
+    """
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a") as fh:
+            fh.write(f"retrained={'true' if value else 'false'}\n")
 
 
 def main() -> None:
@@ -68,6 +86,7 @@ def main() -> None:
     if not args.force and not cache_manager.should_retrain(latest_data_date=latest_date):
         print(f"\nModel is up to date (last match date: {cache_manager.get_last_match_date().date()}). Skipping training.")
         print("Use --force to retrain anyway.")
+        _emit_retrained(False)
         sys.exit(0)
 
     if latest_date:
@@ -95,23 +114,46 @@ def main() -> None:
 
     # Train models
     print("\n=== Training Models ===")
-    trainer = ModelTrainer(config.model)
+    weighter = (
+        TimeDecayWeighter(config.model.time_decay)
+        if config.model.time_decay
+        else None
+    )
+    if weighter and weighter.enabled:
+        half_life = config.model.time_decay.half_life_days
+        print(f"Time-decay weighting enabled (half-life: {half_life:.0f} days)")
+    trainer = ModelTrainer(config.model, weighter=weighter)
     X, y, feature_names = trainer.prepare_data(featured_data)
+    dates = featured_data["Date"]
 
     print(f"\nFeatures: {len(feature_names)}")
     print(f"Samples: {len(X)}")
 
     # Cross-validation
     print("\n=== Cross-Validation ===")
-    cv_results = trainer.cross_validate(X, y)
+    cv_results = trainer.cross_validate(X, y, dates=dates)
 
     # Build ensemble
     print("\n=== Building Ensemble ===")
-    ensemble_results = trainer.build_ensemble(X, y)
+    ensemble_results = trainer.build_ensemble(X, y, dates=dates)
+
+    # Dixon-Coles Poisson score model (fit on cleaned goals data). Blended
+    # into the ensemble 1X2 at inference and used for O/U 2.5 and BTTS.
+    poisson_cfg = config.model.poisson
+    if poisson_cfg and poisson_cfg.enabled:
+        print("\n=== Training Dixon-Coles Poisson Model ===")
+        poisson = DixonColesModel(poisson_cfg).fit(clean_data)
+        print(f"Fitted {len(poisson.attack)} teams; "
+              f"home advantage: {poisson.home_advantage:.3f}, rho: {poisson.rho:.3f}")
 
     # Save model
     last_match_date_str = latest_date.strftime("%Y-%m-%d") if latest_date and not pd.isna(latest_date) else None
     trainer.save_model(output_dir, last_match_date=last_match_date_str)
+
+    if poisson_cfg and poisson_cfg.enabled:
+        poisson_path = Path(output_dir) / "poisson_model.joblib"
+        joblib.dump(poisson, poisson_path)
+        print(f"Poisson model saved to {poisson_path}")
 
     # Collect the seasons that contributed data to the model
     seasons_trained: list[str] = []
@@ -138,6 +180,8 @@ def main() -> None:
     print(f"\nTraining results saved to {results_path}")
     if seasons_trained:
         print(f"Seasons trained: {', '.join(seasons_trained)}")
+
+    _emit_retrained(True)
 
 
 if __name__ == "__main__":

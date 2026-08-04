@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from src.backend.core import dev_auth
 from src.backend.core.supabase_client import get_supabase_client
 
 _bearer = HTTPBearer(auto_error=False)
@@ -34,6 +35,8 @@ async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> str:
     """Verify JWT and return user_id. Raises 401 for unauthenticated requests."""
+    if dev_auth.is_enabled():
+        return dev_auth.dev_user_id()
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -46,6 +49,9 @@ async def get_approved_user(
     user_id: str = Depends(get_current_user),
 ) -> str:
     """Like get_current_user but also verifies user_profiles.approved = true."""
+    if dev_auth.is_enabled():
+        return user_id
+
     from src.backend.services.user_service import UserService
 
     svc = UserService(supabase=get_supabase_client())

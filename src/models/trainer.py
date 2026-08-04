@@ -1,20 +1,25 @@
 from pathlib import Path
+from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import (
-    GradientBoostingClassifier,
     RandomForestClassifier,
     VotingClassifier,
 )
+from sklearn.frozen import FrozenEstimator
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, log_loss
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from config.config_loader import ModelConfig
+from src.models.time_weighting import TimeDecayWeighter
 
 
 class ModelTrainer:
@@ -23,11 +28,44 @@ class ModelTrainer:
     and builds an ensemble.
     """
 
-    def __init__(self, config: ModelConfig) -> None:
+    def __init__(
+        self,
+        config: ModelConfig,
+        weighter: TimeDecayWeighter | None = None,
+    ) -> None:
         self.config = config
-        self.scaler = StandardScaler()
+        # Preprocessor: median imputation + scaling composed into one
+        # Pipeline so both are fit on the TRAINING split only (no leakage).
+        self.scaler: Pipeline = self._make_preprocessor()
         self.ensemble: VotingClassifier | None = None
         self.feature_names: list[str] = []
+        # Optional exponential time-decay sample weighting (recent matches
+        # weighted more). When None, all samples are weighted equally.
+        self.weighter = weighter
+
+    def _train_weights(
+        self, dates: pd.Series | None, index: np.ndarray
+    ) -> np.ndarray | None:
+        """Compute sample weights for a training slice, or None if disabled."""
+        if dates is None or self.weighter is None or not self.weighter.enabled:
+            return None
+        all_weights = self.weighter.compute_weights(dates)
+        train_weights: np.ndarray = all_weights[index]
+        return train_weights
+
+    @staticmethod
+    def _make_preprocessor() -> Pipeline:
+        """Build the leakage-safe preprocessing pipeline.
+
+        Median imputation is fit on the training fold only, so held-out
+        rows never influence the imputed values.
+        """
+        return Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler()),
+            ]
+        )
 
     def prepare_data(
         self, df: pd.DataFrame
@@ -68,6 +106,7 @@ class ModelTrainer:
                     "attack_similarity",
                     "defense_similarity",
                     "combined_defensive",
+                    "is_neutral",
                 )
             )
             and c not in excluded
@@ -76,12 +115,13 @@ class ModelTrainer:
         X = df[feature_cols].copy()
         y = df["Result"].copy()
 
-        X = X.fillna(X.median())
-
+        # NaNs are intentionally left in place: median imputation happens
+        # inside the fitted preprocessing Pipeline (train-split only) to
+        # avoid leaking held-out statistics into training.
         self.feature_names = feature_cols
         return X, y, feature_cols
 
-    def _build_models(self) -> dict[str, object]:
+    def _build_models(self) -> dict[str, Any]:
         """Build individual model instances from config."""
         lr_cfg = self.config.logistic_regression
         rf_cfg = self.config.random_forest
@@ -109,16 +149,18 @@ class ModelTrainer:
                 random_state=self.config.random_state,
                 eval_metric="mlogloss",
             ),
-            "Gradient Boosting": GradientBoostingClassifier(
-                n_estimators=150,
-                max_depth=4,
-                learning_rate=0.08,
-                random_state=self.config.random_state,
-            ),
+            # Gradient Boosting was evaluated but removed: in TimeSeriesSplit
+            # CV it had the worst log-loss and highest variance of all
+            # candidates and is redundant with XGBoost (same algorithm
+            # family). It was never part of the soft-voting ensemble.
         }
 
     def cross_validate(
-        self, X: pd.DataFrame, y: pd.Series, n_splits: int = 5
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        n_splits: int = 5,
+        dates: pd.Series | None = None,
     ) -> dict[str, dict[str, float]]:
         """Train and evaluate multiple models with TimeSeriesSplit."""
         tscv = TimeSeriesSplit(n_splits=n_splits)
@@ -138,10 +180,11 @@ class ModelTrainer:
                 X_train_scaled = self.scaler.fit_transform(X_train)
                 X_test_scaled = self.scaler.transform(X_test)
 
-                model.fit(X_train_scaled, y_train)  # type: ignore[union-attr]
+                sample_weight = self._train_weights(dates, train_idx)
+                model.fit(X_train_scaled, y_train, sample_weight=sample_weight)
 
-                preds = model.predict(X_test_scaled)  # type: ignore[union-attr]
-                proba = model.predict_proba(X_test_scaled)  # type: ignore[union-attr]
+                preds = model.predict(X_test_scaled)
+                proba = model.predict_proba(X_test_scaled)
 
                 fold_accuracies.append(float(accuracy_score(y_test, preds)))
                 fold_log_losses.append(float(log_loss(y_test, proba)))
@@ -166,7 +209,12 @@ class ModelTrainer:
 
         return results
 
-    def build_ensemble(self, X: pd.DataFrame, y: pd.Series) -> dict[str, float]:
+    def build_ensemble(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        dates: pd.Series | None = None,
+    ) -> dict[str, float]:
         """Build and train an ensemble model with soft voting."""
         lr_cfg = self.config.logistic_regression
         rf_cfg = self.config.random_forest
@@ -210,30 +258,107 @@ class ModelTrainer:
             weights=ens_cfg.weights,
         )
 
-        split_idx = int(len(X) * (1 - self.config.test_size))
-        X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
-        y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+        n = len(X)
+        n_test = int(n * self.config.test_size)
+        base_end, calib_end = self._split_indices(n, n_test, y)
+        use_calibration = calib_end > base_end
 
-        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_base, y_base = X.iloc[:base_end], y.iloc[:base_end]
+        X_test, y_test = X.iloc[calib_end:], y.iloc[calib_end:]
+
+        X_base_scaled = self.scaler.fit_transform(X_base)
         X_test_scaled = self.scaler.transform(X_test)
 
-        self.ensemble.fit(X_train_scaled, y_train)
+        sample_weight = self._train_weights(dates, np.arange(base_end))
+        self.ensemble.fit(X_base_scaled, y_base, sample_weight=sample_weight)
+
+        # Uncalibrated test metrics (also the final metrics when calibration
+        # is disabled).
+        proba = self.ensemble.predict_proba(X_test_scaled)
+        logloss_uncal = float(log_loss(y_test, proba, labels=self.ensemble.classes_))
+
+        results: dict[str, float] = {}
+        if use_calibration:
+            calib_cfg = self.config.calibration
+            assert calib_cfg is not None
+            X_calib = X.iloc[base_end:calib_end]
+            y_calib = y.iloc[base_end:calib_end]
+            X_calib_scaled = self.scaler.transform(X_calib)
+
+            # FrozenEstimator wraps the already-fitted ensemble so
+            # CalibratedClassifierCV calibrates it without refitting
+            # (the modern replacement for the removed cv="prefit").
+            calibrated = CalibratedClassifierCV(
+                FrozenEstimator(self.ensemble), method=calib_cfg.method
+            )
+            calibrated.fit(X_calib_scaled, y_calib)
+            self.ensemble = calibrated
+
+            proba = self.ensemble.predict_proba(X_test_scaled)
+            results["log_loss_uncalibrated"] = logloss_uncal
+            results["brier"] = self._multiclass_brier(
+                y_test, proba, self.ensemble.classes_
+            )
 
         preds = self.ensemble.predict(X_test_scaled)
-        proba = self.ensemble.predict_proba(X_test_scaled)
-
         accuracy = float(accuracy_score(y_test, preds))
-        logloss = float(log_loss(y_test, proba))
+        logloss = float(log_loss(y_test, proba, labels=self.ensemble.classes_))
+        results["accuracy"] = accuracy
+        results["log_loss"] = logloss
 
         print(f"\n{'=' * 60}")
-        print("  ENSEMBLE (Soft Voting)")
-        print(f"  Accuracy:  {accuracy:.4f}")
-        print(f"  Log Loss:  {logloss:.4f}")
-        print(
-            f"\n{classification_report(y_test, preds, target_names=['Away Win', 'Draw', 'Home Win'])}"
+        title = (
+            "ENSEMBLE (Soft Voting, Calibrated)"
+            if use_calibration
+            else ("ENSEMBLE (Soft Voting)")
         )
+        print(f"  {title}")
+        print(f"  Accuracy:  {accuracy:.4f}")
+        if use_calibration:
+            print(f"  Log Loss:  {logloss:.4f} (uncalibrated: {logloss_uncal:.4f})")
+        else:
+            print(f"  Log Loss:  {logloss:.4f}")
+        report = classification_report(
+            y_test, preds, target_names=["Away Win", "Draw", "Home Win"]
+        )
+        print(f"\n{report}")
 
-        return {"accuracy": accuracy, "log_loss": logloss}
+        return results
+
+    def _split_indices(self, n: int, n_test: int, y: pd.Series) -> tuple[int, int]:
+        """Compute (base_end, calib_end) chronological split boundaries.
+
+        When calibration is disabled or the calibration slice would be too
+        small to fit reliably, base_end == calib_end (no calibration slice)
+        and behaviour matches the original single-split trainer.
+        """
+        calib_cfg = self.config.calibration
+        if calib_cfg is None or not calib_cfg.enabled:
+            return n - n_test, n - n_test
+
+        n_calib = int(n * calib_cfg.calibration_fraction)
+        # Need enough rows to fit a calibrator per class; otherwise skip.
+        min_calib = max(2 * int(y.nunique()), 1)
+        if n_calib < min_calib:
+            print(
+                "  [calibration] insufficient rows "
+                f"({n_calib} < {min_calib}); skipping calibration."
+            )
+            return n - n_test, n - n_test
+
+        base_end = n - n_test - n_calib
+        return base_end, n - n_test
+
+    @staticmethod
+    def _multiclass_brier(
+        y_true: pd.Series, proba: np.ndarray, classes: np.ndarray
+    ) -> float:
+        """Multiclass Brier score: mean squared error vs. one-hot targets."""
+        class_to_col = {c: i for i, c in enumerate(classes)}
+        onehot = np.zeros_like(proba)
+        for row, label in enumerate(y_true.to_numpy()):
+            onehot[row, class_to_col[label]] = 1.0
+        return float(np.mean(np.sum((proba - onehot) ** 2, axis=1)))
 
     def save_model(self, path: str | Path, last_match_date: str | None = None) -> None:
         """Save the trained ensemble and scaler."""

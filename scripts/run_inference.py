@@ -220,12 +220,26 @@ def _build_response_payload(
     """Build the exact JSON shape that the API returns."""
     matches = []
     for fixture, pred, stats in zip(fixtures, predictions, match_stats):
-        bk_probs = fixture.implied_probabilities()
-
         match_vbs = [
             vb for vb in value_bets
             if vb.home_team == pred.home_team and vb.away_team == pred.away_team
         ]
+
+        if fixture.has_odds:
+            bk_probs = fixture.implied_probabilities()
+            odds_field: dict | None = {
+                "home": fixture.b365_home,
+                "draw": fixture.b365_draw,
+                "away": fixture.b365_away,
+            }
+            implied_field: dict | None = {
+                "home": round(bk_probs["home"], 4),
+                "draw": round(bk_probs["draw"], 4),
+                "away": round(bk_probs["away"], 4),
+            }
+        else:
+            odds_field = None
+            implied_field = None
 
         match_data: dict = {
             "home_team": pred.home_team,
@@ -239,16 +253,8 @@ def _build_response_payload(
             },
             "predicted_outcome": pred.predicted_outcome,
             "confidence": round(pred.confidence, 4),
-            "odds": {
-                "home": fixture.b365_home,
-                "draw": fixture.b365_draw,
-                "away": fixture.b365_away,
-            },
-            "implied_probabilities": {
-                "home": round(bk_probs.get("home", 0), 4),
-                "draw": round(bk_probs.get("draw", 0), 4),
-                "away": round(bk_probs.get("away", 0), 4),
-            },
+            "odds": odds_field,
+            "implied_probabilities": implied_field,
             "expected_goals": None,
             "over_under": None,
             "btts": None,
@@ -392,7 +398,11 @@ def main() -> None:
     else:
         print("WARNING: No model found, will use odds-based fallback.")
 
-    stats_calc = MatchStatsCalculator(config.data)
+    # Reuse the predictor's Dixon-Coles model (when present) so the extended
+    # markets are derived from the calibrated scoreline distribution rather
+    # than the naive independent-Poisson fallback.
+    poisson_model = predictor.poisson if predictor is not None else None
+    stats_calc = MatchStatsCalculator(config.data, poisson_model=poisson_model)
     detector = ValueDetector(config.analysis)
 
     total_uploaded = 0
@@ -425,6 +435,10 @@ def main() -> None:
                 else:
                     pred = _predict_from_odds(fixture)
                 predictions.append(pred)
+                # Only build odds entries (and thus value bets) when the
+                # fixture actually has Bet365 prices; otherwise it is N/A.
+                if not fixture.has_odds:
+                    continue
                 scraped = ScrapedOdds(
                     source="Bet365",
                     home_team=fixture.home_team,

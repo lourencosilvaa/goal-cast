@@ -108,33 +108,3 @@ class BaseFixtureScraper(ABC):
     def source_name(self) -> str:
         """The name of this data source."""
         ...
-
-
-class BaseScraper(ABC):
-    """Abstract base class for betting site scrapers."""
-
-    def __init__(self, base_url: str, user_agent: str, timeout: int) -> None:
-        self.base_url = base_url
-        self.user_agent = user_agent
-        self.timeout = timeout
-
-    @abstractmethod
-    def scrape_league(self, league_url: str) -> list[ScrapedOdds]:
-        """Scrape all available matches for a given league page."""
-        ...
-
-    @abstractmethod
-    def scrape_match(self, match_url: str) -> ScrapedOdds | None:
-        """Scrape odds for a specific match."""
-        ...
-
-    @abstractmethod
-    def get_available_leagues(self) -> dict[str, str]:
-        """Return available leagues and their URLs."""
-        ...
-
-    @property
-    @abstractmethod
-    def source_name(self) -> str:
-        """The name of this betting source."""
-        ...

@@ -76,8 +76,8 @@ class MatchPredictionResponse(BaseModel):
     probabilities: ProbabilitiesResponse
     predicted_outcome: str
     confidence: float
-    odds: OddsResponse
-    implied_probabilities: ImpliedProbsResponse
+    odds: OddsResponse | None = None
+    implied_probabilities: ImpliedProbsResponse | None = None
     expected_goals: ExpectedGoalsResponse | None = None
     over_under: OverUnderResponse | None = None
     btts: BttsResponse | None = None
@@ -147,7 +147,7 @@ async def refresh_predictions(
 
 
 def _build_league_response(result) -> LeaguePredictionsResponse:
-    """Convert LeaguePredictions (pre-built match dicts from Supabase) to API response."""
+    """Convert LeaguePredictions (pre-built Supabase match dicts) to API response."""
     matches = []
     for m in result.matches:
         probs = m.get("probabilities", {})
@@ -172,15 +172,23 @@ def _build_league_response(result) -> LeaguePredictionsResponse:
             ),
             predicted_outcome=m.get("predicted_outcome", ""),
             confidence=m.get("confidence", 0),
-            odds=OddsResponse(
-                home=odds.get("home", 0),
-                draw=odds.get("draw", 0),
-                away=odds.get("away", 0),
+            odds=(
+                OddsResponse(
+                    home=odds.get("home", 0),
+                    draw=odds.get("draw", 0),
+                    away=odds.get("away", 0),
+                )
+                if odds
+                else None
             ),
-            implied_probabilities=ImpliedProbsResponse(
-                home=imp.get("home", 0),
-                draw=imp.get("draw", 0),
-                away=imp.get("away", 0),
+            implied_probabilities=(
+                ImpliedProbsResponse(
+                    home=imp.get("home", 0),
+                    draw=imp.get("draw", 0),
+                    away=imp.get("away", 0),
+                )
+                if imp
+                else None
             ),
             expected_goals=ExpectedGoalsResponse(**xg) if xg else None,
             over_under=OverUnderResponse(**ou) if ou else None,

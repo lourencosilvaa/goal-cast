@@ -9,12 +9,12 @@ export function AppLayout() {
   const location = useLocation();
 
   return (
-    <div className="h-screen overflow-hidden bg-[#08080e] flex">
+    <div className="h-screen overflow-hidden bg-bg text-fg flex">
       <AuroraBackground />
       <Sidebar />
       <main className="flex-1 overflow-y-auto scrollbar-hide relative z-10">
         <RetrainingBanner />
-        <div className="p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto">
+        <div className="p-4 md:p-6 pb-24 md:pb-6 max-w-[1600px] mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}

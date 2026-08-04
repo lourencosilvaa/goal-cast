@@ -14,6 +14,7 @@ from math import exp, factorial
 import pandas as pd
 
 from config.config_loader import DataConfig
+from src.models.poisson.dixon_coles import DixonColesModel
 
 
 @dataclass
@@ -111,9 +112,18 @@ def _score_prob(home_lambda: float, away_lambda: float, h: int, a: int) -> float
 class MatchStatsCalculator:
     """Compute extended match statistics from historical data."""
 
-    def __init__(self, data_config: DataConfig, n_recent: int = 10) -> None:
+    def __init__(
+        self,
+        data_config: DataConfig,
+        n_recent: int = 10,
+        poisson_model: DixonColesModel | None = None,
+    ) -> None:
         self.data_config = data_config
         self.n_recent = n_recent
+        # When a fitted Dixon-Coles model is supplied and it knows both
+        # teams, the goal-based markets are derived from its calibrated
+        # scoreline distribution instead of the naive independent Poisson.
+        self.poisson_model = poisson_model
         self._data_cache: dict[str, pd.DataFrame] = {}
 
     def _load_league_data(self, league_code: str) -> pd.DataFrame:
@@ -234,6 +244,39 @@ class MatchStatsCalculator:
 
         return stats
 
+    def _dixon_coles_match_stats(
+        self,
+        league_code: str,
+        home_team: str,
+        away_team: str,
+        home_stats: TeamStats,
+        away_stats: TeamStats,
+    ) -> MatchStats:
+        """Build MatchStats from the fitted Dixon-Coles scoreline model."""
+        assert self.poisson_model is not None
+        dc = self.poisson_model.predict(home_team, away_team)
+        return MatchStats(
+            home_team=home_team,
+            away_team=away_team,
+            league=self.data_config.leagues.get(league_code, league_code),
+            home_xg=dc.lambda_home,
+            away_xg=dc.lambda_away,
+            total_xg=dc.lambda_home + dc.lambda_away,
+            over15_prob=dc.over_15,
+            over25_prob=dc.over_25,
+            over35_prob=dc.over_35,
+            under25_prob=dc.under_25,
+            btts_yes_prob=dc.btts_yes,
+            btts_no_prob=dc.btts_no,
+            top_scorelines=dc.top_scorelines,
+            home_form=home_stats.form_points,
+            away_form=away_stats.form_points,
+            home_btts_pct=home_stats.btts_pct,
+            away_btts_pct=away_stats.btts_pct,
+            home_over25_pct=home_stats.over25_pct,
+            away_over25_pct=away_stats.over25_pct,
+        )
+
     def compute_match_stats(
         self,
         league_code: str,
@@ -244,6 +287,17 @@ class MatchStatsCalculator:
         data = self._load_league_data(league_code)
         home_stats = self.compute_team_stats(league_code, home_team)
         away_stats = self.compute_team_stats(league_code, away_team)
+
+        # Prefer the calibrated Dixon-Coles markets when the model knows both
+        # teams; the historical form/percentage fields still come from data.
+        if (
+            self.poisson_model is not None
+            and self.poisson_model.knows(home_team)
+            and self.poisson_model.knows(away_team)
+        ):
+            return self._dixon_coles_match_stats(
+                league_code, home_team, away_team, home_stats, away_stats
+            )
 
         # League average goals per game
         if not data.empty and "FTHG" in data.columns:

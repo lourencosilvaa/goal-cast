@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AppConfig(BaseModel):
@@ -64,6 +64,54 @@ class EnsembleConfig(BaseModel):
     weights: list[int]
 
 
+class TimeDecayConfig(BaseModel):
+    """Exponential time-decay weighting for training samples."""
+
+    enabled: bool
+    half_life_days: float
+
+
+class CalibrationConfig(BaseModel):
+    """Probability calibration of the fitted ensemble.
+
+    Calibration is fit on a held-out chronological slice (never the
+    training rows) so the corrected probabilities are leakage-safe.
+    """
+
+    enabled: bool = False
+    method: str = "sigmoid"  # "sigmoid" (Platt) or "isotonic"
+    calibration_fraction: float = 0.15
+
+
+class XGBSearchConfig(BaseModel):
+    """Bounded, leakage-safe XGBoost log-loss hyperparameter search."""
+
+    enabled: bool = True
+    n_iter: int = 20
+    n_splits: int = 5
+    # int | float union so integer params (n_estimators, max_depth) stay
+    # integers while continuous params (learning_rate, subsample) stay floats.
+    param_grid: dict[str, list[int | float]] = {}
+
+
+class PoissonConfig(BaseModel):
+    """Dixon-Coles Poisson score model.
+
+    Models goals directly to produce calibrated scorelines and the O/U 2.5
+    and BTTS markets. Its 1X2 distribution is blended into the ensemble's
+    with weight ``blend_weight`` (0 = ensemble only, 1 = Poisson only).
+    ``blend_weight_grid`` is the candidate grid the offline sweep searches.
+    """
+
+    enabled: bool = False
+    max_goals: int = 10
+    half_life_days: float = 540
+    blend_weight: float = 0.4
+    blend_weight_grid: list[float] = Field(
+        default_factory=lambda: [round(i / 10, 1) for i in range(11)]
+    )
+
+
 class ModelConfig(BaseModel):
     test_size: float
     random_state: int
@@ -71,11 +119,10 @@ class ModelConfig(BaseModel):
     random_forest: RandomForestConfig
     xgboost: XGBoostConfig
     ensemble: EnsembleConfig
-
-
-class ScraperSiteConfig(BaseModel):
-    base_url: str
-    enabled: bool
+    time_decay: TimeDecayConfig | None = None
+    calibration: CalibrationConfig | None = None
+    xgb_search: XGBSearchConfig | None = None
+    poisson: PoissonConfig | None = None
 
 
 class FlashScoreConfig(BaseModel):
@@ -92,9 +139,6 @@ class ScrapersConfig(BaseModel):
     request_timeout: int
     rate_limit_seconds: float
     user_agent: str
-    betclic: ScraperSiteConfig
-    betano: ScraperSiteConfig
-    solverde: ScraperSiteConfig
     flashscore: FlashScoreConfig = FlashScoreConfig(
         base_url="https://www.flashscore.com",
         api_url="https://d.flashscore.com/x/feed",
@@ -146,6 +190,38 @@ class SpaceConfig(BaseModel):
     huggingface: HuggingFaceConfig
     inference: InferenceConfig
 
+
+class InternationalFlashScoreConfig(BaseModel):
+    """FlashScore competition slug map for national-team fixtures.
+
+    Keys are internal tournament codes and values are FlashScore URL slugs
+    (e.g. ``world/world-cup``) resolved by the shared FlashScore scraper.
+    """
+
+    leagues: dict[str, str] = {}
+
+
+class InternationalConfig(BaseModel):
+    """National-teams (international) prediction track configuration.
+
+    Drives a parallel, goals-only pipeline trained from a fixed Kaggle
+    dataset. All environment-dependent values live here (never hardcoded):
+    dataset path, training filters, neutral-venue handling, artifact
+    directory and the FlashScore competition slug map.
+    """
+
+    enabled: bool = True
+    dataset_path: str
+    min_date: str = "1990-01-01"
+    models_dir: str = "output/models/international"
+    # Scales ELO/Poisson home advantage on neutral venues: 0.0 removes it
+    # entirely (true neutral), 1.0 keeps the full home advantage.
+    neutral_home_advantage_factor: float = 0.0
+    # Empty list means "include every tournament in the dataset".
+    tournaments: list[str] = Field(default_factory=list)
+    flashscore: InternationalFlashScoreConfig = InternationalFlashScoreConfig()
+
+
 class Config(BaseModel):
     app: AppConfig
     data: DataConfig
@@ -159,6 +235,9 @@ class Config(BaseModel):
     evaluation: EvaluationConfig = EvaluationConfig()
     huggingface: HuggingFaceConfig = HuggingFaceConfig()
     inference: InferenceConfig = InferenceConfig()
+    international: InternationalConfig = InternationalConfig(
+        dataset_path="datasets/international/results.csv"
+    )
 
 
 def load_config(path: str | Path = "config/config.yaml") -> Config:

@@ -59,12 +59,12 @@ export function LoginPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="w-full max-w-sm text-center">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mx-auto mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent-green to-accent-green flex items-center justify-center mx-auto mb-4">
             <CheckCircle2 className="w-7 h-7 text-white" />
           </div>
-          <GlassCard gradient="green">
-            <h2 className="text-lg font-semibold text-white/90 mb-2">Registo efetuado!</h2>
-            <p className="text-sm text-white/50 mb-5 leading-relaxed">
+          <GlassCard accent="green">
+            <h2 className="text-lg font-semibold text-fg mb-2">Registo efetuado!</h2>
+            <p className="text-sm text-fg-muted mb-5 leading-relaxed">
               A tua conta foi criada e aguarda aprovação do administrador.
               Receberás acesso em breve.
             </p>
@@ -81,40 +81,40 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mx-auto mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center mx-auto mb-4">
             {mode === 'login' ? (
               <LogIn className="w-7 h-7 text-white" />
             ) : (
               <UserPlus className="w-7 h-7 text-white" />
             )}
           </div>
-          <h1 className="text-2xl font-bold text-white/90">Football Agent</h1>
-          <p className="text-sm text-white/40 mt-1">
+          <h1 className="text-2xl font-bold text-fg">Football Agent</h1>
+          <p className="text-sm text-fg-muted mt-1">
             {mode === 'login' ? 'Inicia sessão para continuar' : 'Cria a tua conta'}
           </p>
         </div>
 
-        <GlassCard gradient="green">
+        <GlassCard accent="blue">
           <form onSubmit={mode === 'login' ? handleLogin : handleRegister} className="space-y-4">
             <div>
-              <label className="block text-sm text-white/60 mb-1.5">Email</label>
+              <label className="block text-sm text-fg-muted mb-1.5">Email</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   placeholder="email@exemplo.com"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 placeholder:text-white/20 transition-colors"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg placeholder:text-fg-subtle transition-colors"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm text-white/60 mb-1.5">Password</label>
+              <label className="block text-sm text-fg-muted mb-1.5">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" />
                 <input
                   type="password"
                   value={password}
@@ -122,13 +122,13 @@ export function LoginPage() {
                   required
                   minLength={6}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-white/10 focus:border-green-500/40 focus:outline-none text-sm text-white/80 placeholder:text-white/20 transition-colors"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg placeholder:text-fg-subtle transition-colors"
                 />
               </div>
             </div>
 
             {error && (
-              <p className="text-xs text-red-400 text-center">{error}</p>
+              <p className="text-xs text-accent-red text-center">{error}</p>
             )}
 
             <NeonButton type="submit" className="w-full" disabled={loading}>
@@ -142,23 +142,23 @@ export function LoginPage() {
             </NeonButton>
           </form>
 
-          <div className="mt-4 pt-4 border-t border-white/[0.06] text-center">
+          <div className="mt-4 pt-4 border-t border-line text-center">
             {mode === 'login' ? (
-              <p className="text-xs text-white/40">
+              <p className="text-xs text-fg-muted">
                 Ainda não tens conta?{' '}
                 <button
                   onClick={() => switchMode('register')}
-                  className="text-green-400 hover:text-green-300 transition-colors"
+                  className="text-accent-blue hover:opacity-80 transition-opacity"
                 >
                   Regista-te
                 </button>
               </p>
             ) : (
-              <p className="text-xs text-white/40">
+              <p className="text-xs text-fg-muted">
                 Já tens conta?{' '}
                 <button
                   onClick={() => switchMode('login')}
-                  className="text-green-400 hover:text-green-300 transition-colors"
+                  className="text-accent-blue hover:opacity-80 transition-opacity"
                 >
                   Inicia sessão
                 </button>
