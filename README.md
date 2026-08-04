@@ -390,7 +390,7 @@ Create a **Web Service** on Render with runtime **Docker** pointing to the repo 
 | `RETRAIN_API_KEY` | Secret for the retraining webhook | `openssl rand -hex 32` |
 | `HF_SPACE_URL` | Public URL of your HuggingFace Space | Space → `https://username-space-name.hf.space` |
 
-Set the **Health check path** to `/api/leagues`.
+Set the **Health check path** to `/api/health` — it is unauthenticated and returns 200 as soon as the app is up. Do not use an authenticated route such as `/api/leagues`: it returns 401 to Render, so the health check never passes.
 
 The backend is lightweight — it does **not** load any ML model or historical data. It reads pre-computed predictions from the Supabase `predictions` table and serves them via the API. Startup is near-instant and memory usage stays under 50 MB.
 

@@ -33,6 +33,11 @@ COPY uv.lock* .
 # Install ONLY the backend dependency group (no ML libs like pandas/xgboost/sklearn)
 RUN uv sync --frozen --no-dev --only-group backend
 
+# Run straight from the environment built above. Using `uv run` in CMD would
+# re-sync against the DEFAULT dependency groups on every container start,
+# re-downloading the full ML + dev toolchain and adding minutes to cold starts.
+ENV PATH="/app/.venv/bin:$PATH"
+
 COPY config/ config/
 COPY src/__init__.py src/__init__.py
 COPY src/backend/ src/backend/
@@ -42,4 +47,4 @@ COPY --from=frontend-build /app/dist /app/static
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -3,7 +3,6 @@
 from pathlib import Path
 from typing import Annotated, Any
 
-import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
@@ -17,7 +16,13 @@ _CACHE_DIR = Path("datasets/cache")
 
 
 def _load_teams_from_cache() -> dict[str, list[str]]:
-    """Load teams from local CSV cache for the latest season."""
+    """Load teams from local CSV cache for the latest season.
+
+    ``pandas`` is imported lazily, only once a cache file is actually found.
+    The deployed image ships the ``backend`` dependency group without pandas
+    and never copies ``datasets/``, so this stays a no-op there instead of
+    raising ImportError.
+    """
     result: dict[str, list[str]] = {}
     for league in _LEAGUE_CODES:
         # Find latest season file for this league
@@ -25,6 +30,8 @@ def _load_teams_from_cache() -> dict[str, list[str]]:
         if not files:
             continue
         try:
+            import pandas as pd
+
             df = pd.read_csv(
                 files[0], encoding="utf-8", usecols=["HomeTeam", "AwayTeam"]
             )
