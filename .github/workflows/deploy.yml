@@ -8,7 +8,7 @@
 #      Image URL: ghcr.io/<github-org>/football-prediction-agent:latest
 #      Registry credentials: GitHub
 #      Port: 8000
-#      Health check path: /api/status (or /)
+#      Health check path: /api/health   (unauthenticated; /api/status is not a route)
 # 3. Copy the Deploy Hook URL → set as GitHub secret RENDER_DEPLOY_HOOK_URL
 # 4. Set the following environment variables on the Render service:
 #      CORS_ORIGINS=*  (or a specific domain)
