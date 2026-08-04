@@ -21,7 +21,11 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+load_dotenv()
 
 
 def _parse_args() -> argparse.Namespace:
