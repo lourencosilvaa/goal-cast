@@ -16,11 +16,17 @@ export function GoalMarketsPanel({
   homeTeam: string;
   awayTeam: string;
 }) {
+  const provenance =
+    markets.source === 'model'
+      ? 'modelo Poisson calibrado'
+      : 'estimativa por médias históricas';
+
   return (
     <div className="space-y-5">
       <StatSection
         icon={<Target className="w-3.5 h-3.5" />}
         title="Golos Esperados (xG)"
+        subtitle={provenance}
       >
         <div className="grid grid-cols-3 gap-2">
           <StatTile label={homeTeam} value={num(markets.expected_goals.home, 2)} />

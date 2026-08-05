@@ -308,6 +308,25 @@ ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role_full_access" ON public.app_settings
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- Canonical team-name aliases (admin-validated mapping for scraped names).
+-- FlashScore spells teams its own way ("Sporting CP" vs football-data's
+-- "Sp Lisbon"). The inference pipeline inserts unrecognised names as 'pending';
+-- an admin confirms each one in the Admin page, which flips it to 'approved'.
+-- Only 'approved' rows are ever used to resolve a name.
+CREATE TABLE public.team_aliases (
+  league_code    TEXT NOT NULL,
+  raw_name       TEXT NOT NULL,
+  canonical_name TEXT,
+  status         TEXT NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending', 'approved')),
+  approved_by    TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (league_code, raw_name)
+);
+ALTER TABLE public.team_aliases ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_full_access" ON public.team_aliases
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
 -- Grant yourself admin access (run after your first login)
 INSERT INTO public.user_profiles (user_id, email, approved, is_admin)
 SELECT id, email, true, true

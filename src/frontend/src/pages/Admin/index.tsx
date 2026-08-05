@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Users, UserPlus, ShieldCheck, ShieldOff, Loader2, Key } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { NeonButton } from '@/components/ui/NeonButton';
+import { TeamAliasPanel } from '@/components/admin/TeamAliasPanel';
 import {
   adminListUsers,
   adminCreateUser,
@@ -90,7 +91,9 @@ export function AdminPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-fg">Admin</h1>
-          <p className="text-sm text-fg-muted mt-1">Gestão de utilizadores</p>
+          <p className="text-sm text-fg-muted mt-1">
+            Gestão de utilizadores e nomes de equipas
+          </p>
         </div>
         <NeonButton onClick={() => setShowCreate((v) => !v)}>
           <UserPlus className="w-4 h-4 mr-1.5" />
@@ -216,6 +219,11 @@ export function AdminPage() {
           </div>
         )}
       </GlassCard>
+
+      {/* Canonical-name review queue for scraped fixtures */}
+      <div className="mt-6">
+        <TeamAliasPanel />
+      </div>
     </div>
   );
 }

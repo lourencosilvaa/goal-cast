@@ -139,12 +139,22 @@ class ScorelineResponse(BaseModel):
 
 
 class GoalMarketsResponse(BaseModel):
-    """Score-model markets; absent when the model does not know both teams."""
+    """Score-model markets; absent when neither source can produce them.
+
+    ``source`` is ``"model"`` for the calibrated Dixon-Coles output and
+    ``"historical"`` for the rates-based approximation used when that artifact
+    is unavailable — the UI labels the difference rather than hiding it.
+    """
 
     expected_goals: ExpectedGoalsResponse
     over_under: OverUnderResponse
     btts: BttsResponse
     top_scorelines: list[ScorelineResponse]
+    #: Defaulted so the backend keeps working while a Space that predates the
+    #: field is still deployed. That default is accurate for those payloads:
+    #: before the fallback existed, markets were only ever produced by the
+    #: calibrated model.
+    source: str = "model"
 
 
 class MatchStatsResponse(BaseModel):

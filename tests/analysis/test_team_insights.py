@@ -450,15 +450,20 @@ class TestMatchInsights:
         assert insights.league == "Liga Portugal"
         assert insights.league_code == "P1"
 
-    def test_goal_markets_absent_without_a_market_model(self):
-        assert calculator(wide_config()).match_insights(self._fixture()).goal_markets is None
+    def test_goal_markets_fall_back_to_history_without_a_market_model(self):
+        markets = calculator(wide_config()).match_insights(self._fixture()).goal_markets
+        assert markets is not None
+        assert markets.source == GoalMarkets.SOURCE_HISTORICAL
 
-    def test_goal_markets_absent_when_a_team_is_unknown_to_the_model(self):
+    def test_goal_markets_fall_back_when_a_team_is_unknown_to_the_model(self):
         model = StubMarketModel(known={"Sporting"}, prediction=StubPrediction())
-        insights = calculator(wide_config(), market_model=model).match_insights(
-            self._fixture()
+        markets = (
+            calculator(wide_config(), market_model=model)
+            .match_insights(self._fixture())
+            .goal_markets
         )
-        assert insights.goal_markets is None
+        assert markets is not None
+        assert markets.source == GoalMarkets.SOURCE_HISTORICAL
 
     def test_goal_markets_present_when_the_model_knows_both_teams(self):
         model = StubMarketModel(
@@ -497,8 +502,24 @@ class TestMatchInsights:
         assert payload["goal_markets"]["expected_goals"]["home"] == pytest.approx(1.8)
 
     def test_to_dict_keeps_goal_markets_null_when_unavailable(self):
-        payload = calculator(wide_config()).match_insights(self._fixture()).to_dict()
+        """No model and no history for a side leaves nothing to approximate."""
+        payload = (
+            calculator(wide_config())
+            .match_insights(
+                FixtureQuery(league_code="P1", home_team="Sporting", away_team="Nobody")
+            )
+            .to_dict()
+        )
         assert payload["goal_markets"] is None
+
+    def test_to_dict_reports_the_market_source(self):
+        model = StubMarketModel(known={"Sporting", "Porto"}, prediction=StubPrediction())
+        payload = (
+            calculator(wide_config(), market_model=model)
+            .match_insights(self._fixture())
+            .to_dict()
+        )
+        assert payload["goal_markets"]["source"] == GoalMarkets.SOURCE_MODEL
 
 
 class TestKnowsTeam:

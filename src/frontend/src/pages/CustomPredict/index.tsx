@@ -126,7 +126,8 @@ export function CustomPredictPage() {
         </p>
       </div>
 
-      <GlassCard className="space-y-5">
+      {/* overflow-visible: the team comboboxes drop a list past the card edge */}
+      <GlassCard className="space-y-5" overflow="visible">
         <LeagueSelect value={leagueCode} onChange={handleLeagueChange} />
 
         <div className="grid grid-cols-2 gap-4">

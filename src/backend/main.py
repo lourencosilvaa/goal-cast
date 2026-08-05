@@ -32,6 +32,7 @@ from src.backend.api import (
     profile,
     stats,
     status,
+    team_aliases,
     teams,
 )
 
@@ -75,6 +76,7 @@ app.include_router(profile.router)
 app.include_router(status.router)
 app.include_router(teams.router)
 app.include_router(stats.router)
+app.include_router(team_aliases.router)
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 if _static_dir.exists():

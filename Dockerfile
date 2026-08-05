@@ -41,6 +41,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY config/ config/
 COPY src/__init__.py src/__init__.py
 COPY src/backend/ src/backend/
+# Canonical team-name resolution is shared with the offline pipeline; the
+# backend needs it to serve the admin alias-review screen.
+COPY src/teams/ src/teams/
 
 # Copy built frontend — served by FastAPI at /
 COPY --from=frontend-build /app/dist /app/static

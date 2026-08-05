@@ -31,6 +31,7 @@ Match lists and form sequences are ordered **most recent first**.
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from math import exp, factorial
 from typing import Any, ClassVar, Protocol
 
 import pandas as pd
@@ -41,6 +42,13 @@ from config.config_loader import InsightsConfig
 WIN, DRAW, LOSS = "W", "D", "L"
 #: Venue letters, from the subject team's point of view.
 HOME, AWAY = "H", "A"
+
+
+def _poisson_prob(rate: float, count: int) -> float:
+    """P(X = count) for a Poisson variable with the given rate."""
+    if rate <= 0:
+        return 1.0 if count == 0 else 0.0
+    return (rate**count) * exp(-rate) / factorial(count)
 
 
 class MarketModel(Protocol):
@@ -305,6 +313,11 @@ class HeadToHead:
 class GoalMarkets:
     """Model-derived goal markets for a fixture.
 
+    ``source`` states which model produced them — the calibrated Dixon-Coles
+    artifact or the historical-rates approximation. It is part of the payload
+    on purpose: silently swapping one for the other would be exactly the kind
+    of hidden behaviour the project forbids.
+
     Values are rounded here because this block mirrors the payload shape the
     app already renders for scheduled matches (see ``MatchStats.to_dict``).
     The empirical blocks above deliberately keep full precision — rounding
@@ -314,6 +327,9 @@ class GoalMarkets:
     #: Decimal places for probabilities and for goal counts respectively.
     PROBABILITY_DIGITS: ClassVar[int] = 3
     GOALS_DIGITS: ClassVar[int] = 2
+    #: Provenance labels.
+    SOURCE_MODEL: ClassVar[str] = "model"
+    SOURCE_HISTORICAL: ClassVar[str] = "historical"
 
     home_xg: float
     away_xg: float
@@ -324,13 +340,19 @@ class GoalMarkets:
     btts_yes: float
     btts_no: float
     top_scorelines: list[tuple[int, int, float]] = field(default_factory=list)
+    source: str = SOURCE_MODEL
 
     @property
     def total_xg(self) -> float:
         return self.home_xg + self.away_xg
 
     @classmethod
-    def from_prediction(cls, prediction: Any, max_scorelines: int) -> "GoalMarkets":
+    def from_prediction(
+        cls,
+        prediction: Any,
+        max_scorelines: int,
+        source: str = SOURCE_MODEL,
+    ) -> "GoalMarkets":
         """Adapt a Dixon-Coles style prediction into the market block."""
         return cls(
             home_xg=float(prediction.lambda_home),
@@ -342,6 +364,7 @@ class GoalMarkets:
             btts_yes=float(prediction.btts_yes),
             btts_no=float(prediction.btts_no),
             top_scorelines=list(prediction.top_scorelines)[:max_scorelines],
+            source=source,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -367,7 +390,147 @@ class GoalMarkets:
                 {"score": f"{h}-{a}", "prob": round(p, prob)}
                 for h, a, p in self.top_scorelines
             ],
+            "source": self.source,
         }
+
+
+@dataclass(frozen=True)
+class EmpiricalPrediction:
+    """Dixon-Coles-shaped output produced from historical scoring rates.
+
+    Structurally identical to ``DixonColesPrediction`` so both can feed
+    :meth:`GoalMarkets.from_prediction` unchanged.
+    """
+
+    lambda_home: float
+    lambda_away: float
+    over_15: float
+    over_25: float
+    over_35: float
+    under_25: float
+    btts_yes: float
+    btts_no: float
+    top_scorelines: list[tuple[int, int, float]]
+
+
+class EmpiricalPoissonModel:
+    """Score model derived from the teams' own scoring and conceding rates.
+
+    The calibrated Dixon-Coles artifact is optional — it is absent whenever the
+    deployed model repo predates it. This stands in for it, using the same
+    independent-Poisson approximation the app already applies to scheduled
+    matches (see :class:`src.analysis.match_stats.MatchStatsCalculator`):
+
+        home_xg = home_attack × away_defence / league_average
+
+    It is *not* calibrated, which is why every market it produces is labelled
+    ``historical``. It implements ``knows``/``predict`` so it is substitutable
+    for the fitted model wherever a :class:`MarketModel` is expected.
+    """
+
+    #: Bounds keeping a freak run of results from producing absurd rates.
+    MIN_EXPECTED_GOALS: ClassVar[float] = 0.2
+    MAX_EXPECTED_GOALS: ClassVar[float] = 4.0
+    #: Goal line behind the over/under markets.
+    OVER_LINES: ClassVar[tuple[float, ...]] = (1.5, 2.5, 3.5)
+
+    HOME_TEAM: ClassVar[str] = "HomeTeam"
+    AWAY_TEAM: ClassVar[str] = "AwayTeam"
+    HOME_GOALS: ClassVar[str] = "FTHG"
+    AWAY_GOALS: ClassVar[str] = "FTAG"
+
+    def __init__(
+        self,
+        matches: pd.DataFrame,
+        league_average_goals: float,
+        max_goals: int,
+    ) -> None:
+        self._matches = matches
+        self._league_average = league_average_goals
+        self._max_goals = max_goals
+
+    def knows(self, team: str) -> bool:
+        """Whether the frame holds any match for this team."""
+        if self._matches.empty or self.HOME_TEAM not in self._matches.columns:
+            return False
+        return bool(
+            (
+                (self._matches[self.HOME_TEAM] == team)
+                | (self._matches[self.AWAY_TEAM] == team)
+            ).any()
+        )
+
+    def predict(self, home_team: str, away_team: str) -> EmpiricalPrediction:
+        """Expected goals and the markets implied by two independent Poissons."""
+        home_attack = self._rate(home_team, scored=True, at_home=True)
+        home_defence = self._rate(home_team, scored=False, at_home=True)
+        away_attack = self._rate(away_team, scored=True, at_home=False)
+        away_defence = self._rate(away_team, scored=False, at_home=False)
+
+        average = self._league_average or 1.0
+        home_xg = self._clamp(home_attack * away_defence / average)
+        away_xg = self._clamp(away_attack * home_defence / average)
+
+        scorelines = self._scoreline_matrix(home_xg, away_xg)
+        totals = {
+            line: sum(p for h, a, p in scorelines if h + a > line)
+            for line in self.OVER_LINES
+        }
+        btts_yes = sum(p for h, a, p in scorelines if h > 0 and a > 0)
+        over_25 = totals[2.5]
+        return EmpiricalPrediction(
+            lambda_home=home_xg,
+            lambda_away=away_xg,
+            over_15=totals[1.5],
+            over_25=over_25,
+            over_35=totals[3.5],
+            under_25=1.0 - over_25,
+            btts_yes=btts_yes,
+            btts_no=1.0 - btts_yes,
+            top_scorelines=sorted(scorelines, key=lambda item: -item[2]),
+        )
+
+    def _clamp(self, value: float) -> float:
+        return max(self.MIN_EXPECTED_GOALS, min(value, self.MAX_EXPECTED_GOALS))
+
+    def _rate(self, team: str, scored: bool, at_home: bool) -> float:
+        """Goals scored (or conceded) per match by ``team`` at one venue.
+
+        Falls back to the venue-agnostic rate, then to the league average, so a
+        team that has only ever played away still yields a usable number.
+        """
+        venue = self._venue_rate(team, scored=scored, at_home=at_home)
+        if venue is not None:
+            return venue
+        overall = self._overall_rate(team, scored=scored)
+        return overall if overall is not None else self._league_average
+
+    def _venue_rate(self, team: str, scored: bool, at_home: bool) -> float | None:
+        column = self.HOME_TEAM if at_home else self.AWAY_TEAM
+        rows = self._matches[self._matches[column] == team]
+        if rows.empty:
+            return None
+        goals = self.HOME_GOALS if scored == at_home else self.AWAY_GOALS
+        return float(rows[goals].mean())
+
+    def _overall_rate(self, team: str, scored: bool) -> float | None:
+        home = self._matches[self._matches[self.HOME_TEAM] == team]
+        away = self._matches[self._matches[self.AWAY_TEAM] == team]
+        if home.empty and away.empty:
+            return None
+        home_goals = self.HOME_GOALS if scored else self.AWAY_GOALS
+        away_goals = self.AWAY_GOALS if scored else self.HOME_GOALS
+        values = list(home[home_goals]) + list(away[away_goals])
+        return sum(float(v) for v in values) / len(values) if values else None
+
+    def _scoreline_matrix(
+        self, home_xg: float, away_xg: float
+    ) -> list[tuple[int, int, float]]:
+        return [
+            (h, a, _poisson_prob(home_xg, h) * _poisson_prob(away_xg, a))
+            for h in range(self._max_goals)
+            for a in range(self._max_goals)
+        ]
 
 
 @dataclass(frozen=True)
@@ -416,6 +579,11 @@ class TeamInsightsCalculator:
     DATE_FORMAT: ClassVar[str] = "%Y-%m-%d"
     #: Goal line behind the "over" rates.
     OVER_LINE: ClassVar[float] = 2.5
+    #: Scoreline grid size for the historical-rates market fallback: the
+    #: probability mass beyond six goals a side is negligible.
+    MAX_SCORELINE_GOALS: ClassVar[int] = 6
+    #: Goals per side assumed when a competition has no usable score data.
+    FALLBACK_LEAGUE_AVERAGE_GOALS: ClassVar[float] = 1.35
     #: (home column, away column) pairs summed into each per-match average.
     SHOT_COLUMNS: ClassVar[list[tuple[str, str]]] = [("HS", "AS")]
     SHOT_ON_TARGET_COLUMNS: ClassVar[list[tuple[str, str]]] = [("HST", "AST")]
@@ -702,6 +870,11 @@ class TeamInsightsCalculator:
     # ── model-derived markets ─────────────────────────────────────────────────
 
     def _goal_markets(self, query: FixtureQuery) -> GoalMarkets | None:
+        """Calibrated markets when available, historical ones otherwise."""
+        fitted = self._fitted_markets(query)
+        return fitted if fitted is not None else self._historical_markets(query)
+
+    def _fitted_markets(self, query: FixtureQuery) -> GoalMarkets | None:
         model = self.market_model
         if model is None:
             return None
@@ -710,4 +883,32 @@ class TeamInsightsCalculator:
         prediction = model.predict(query.home_team, query.away_team)
         if prediction is None:
             return None
-        return GoalMarkets.from_prediction(prediction, self.config.max_scorelines)
+        return GoalMarkets.from_prediction(
+            prediction, self.config.max_scorelines, source=GoalMarkets.SOURCE_MODEL
+        )
+
+    def _historical_markets(self, query: FixtureQuery) -> GoalMarkets | None:
+        """Approximate the markets from what both teams have actually done."""
+        frame = self._league_frame(query.league_code)
+        model = EmpiricalPoissonModel(
+            matches=frame,
+            league_average_goals=self._league_average_goals(frame),
+            max_goals=self.MAX_SCORELINE_GOALS,
+        )
+        if not (model.knows(query.home_team) and model.knows(query.away_team)):
+            return None
+        return GoalMarkets.from_prediction(
+            model.predict(query.home_team, query.away_team),
+            self.config.max_scorelines,
+            source=GoalMarkets.SOURCE_HISTORICAL,
+        )
+
+    def _league_average_goals(self, frame: pd.DataFrame) -> float:
+        """Mean goals per side in the competition, for the xG normaliser."""
+        if frame.empty or self.HOME_GOALS not in frame.columns:
+            return self.FALLBACK_LEAGUE_AVERAGE_GOALS
+        home_mean = frame[self.HOME_GOALS].mean()
+        away_mean = frame[self.AWAY_GOALS].mean()
+        if pd.isna(home_mean) or pd.isna(away_mean):
+            return self.FALLBACK_LEAGUE_AVERAGE_GOALS
+        return float((home_mean + away_mean) / 2)

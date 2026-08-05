@@ -200,6 +200,18 @@ teams:
   # Static per-league team lists served when the HF Space is unreachable or
   # returns nothing. Regenerate with: uv run python scripts/build_teams_registry.py
   registry_path: "src/backend/data/teams_registry.json"
+  # Canonical-name resolution for scraped fixtures. FlashScore spells teams
+  # differently from football-data.co.uk ("Sporting CP" vs "Sp Lisbon"), and an
+  # unrecognised name would otherwise be predicted from league averages. Names
+  # resolve only via an exact match, a reviewed entry in `seed_path`, or an
+  # admin-approved alias in Supabase — fuzzy matches are proposed, never applied.
+  aliases:
+    seed_path: "config/team_aliases.yaml"
+    # The count keeps the admin's candidate list short; the cutoff sits below
+    # difflib's 0.6 default because real abbreviations score low
+    # ("Sporting CP" -> "Sp Lisbon" is 0.40) and would otherwise be hidden.
+    suggestion_count: 5
+    suggestion_cutoff: 0.4
 
 # National-teams (international) prediction track. A parallel, goals-only
 # pipeline trained from the fixed Kaggle dataset (results.csv). Upcoming

@@ -23,6 +23,33 @@ def _cmd_line() -> str:
     return matches[0]
 
 
+class TestDockerfileSourceContract:
+    """Every package the backend imports must be copied into the image.
+
+    The build installs only the ``backend`` dependency group and copies a
+    hand-picked set of directories, so a new top-level package is a silent
+    ImportError at container start rather than a build failure.
+    """
+
+    @staticmethod
+    def _copied_paths() -> list[str]:
+        return [
+            line.split()[1]
+            for line in _dockerfile_lines()
+            if line.startswith("COPY ") and not line.startswith("COPY --from")
+        ]
+
+    def test_backend_package_is_copied(self):
+        assert "src/backend/" in self._copied_paths()
+
+    def test_config_package_is_copied(self):
+        assert "config/" in self._copied_paths()
+
+    def test_shared_teams_package_is_copied(self):
+        """``src.teams`` backs the admin alias screen (src/backend/api/team_aliases.py)."""
+        assert "src/teams/" in self._copied_paths()
+
+
 class TestDockerfileRuntimeContract:
 
     def test_cmd_does_not_invoke_uv_at_runtime(self):

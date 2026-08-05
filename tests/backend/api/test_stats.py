@@ -121,6 +121,7 @@ GOAL_MARKETS = {
     },
     "btts": {"yes": 0.52, "no": 0.48},
     "top_scorelines": [{"score": "2-1", "prob": 0.11}],
+    "source": "model",
 }
 
 
@@ -197,6 +198,15 @@ class TestMatchStatsEndpoint:
         assert body["away"]["team"] == "Porto"
         assert body["goal_markets"]["expected_goals"]["total"] == 2.9
         assert body["goal_markets"]["top_scorelines"][0]["score"] == "2-1"
+
+    def test_markets_from_a_space_predating_the_source_field_still_validate(self):
+        """Deploy ordering: the backend may lead the Space by a few minutes."""
+        legacy = {k: v for k, v in GOAL_MARKETS.items() if k != "source"}
+        repo = AsyncMock()
+        repo.get_match_stats.return_value = match_payload(legacy)
+        res = client(repo).post("/api/stats/match", json=self._body())
+        assert res.status_code == 200
+        assert res.json()["goal_markets"]["source"] == "model"
 
     def test_goal_markets_may_be_absent(self):
         repo = AsyncMock()
