@@ -1,11 +1,11 @@
-"""Tests for InferenceService as HTTP client calling the HF Space."""
+"""Tests for InferenceService as an async httpx client calling the HF Space."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-import requests
 
 from src.backend.services.inference_service import InferenceService
+from tests.backend.services.conftest import FakeAsyncClient, make_response
 
 
 def _make_config(space_url: str = "https://user-space.hf.space") -> MagicMock:
@@ -22,80 +22,81 @@ class TestInferenceService:
         svc = InferenceService(config)
         assert svc.config is config
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_run_posts_to_space_infer_endpoint(self, mock_post):
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"predictions": [{"home_team": "Arsenal", "away_team": "Chelsea",
-                                           "predicted_outcome": "Home Win", "confidence": 0.6}]},
+    @pytest.mark.asyncio
+    async def test_run_posts_to_space_infer_endpoint(self, patch_async_client):
+        client = patch_async_client(
+            FakeAsyncClient(
+                make_response(
+                    {
+                        "predictions": [
+                            {
+                                "home_team": "Arsenal",
+                                "away_team": "Chelsea",
+                                "predicted_outcome": "Home Win",
+                                "confidence": 0.6,
+                            }
+                        ]
+                    }
+                )
+            )
         )
-        config = _make_config("https://user-space.hf.space")
-        svc = InferenceService(config)
-        svc.run(target_date="28/04/2024", league_codes=["E0"])
+        svc = InferenceService(_make_config("https://user-space.hf.space"))
+        await svc.run(target_date="28/04/2024", league_codes=["E0"])
 
-        mock_post.assert_called_once()
-        call_url = mock_post.call_args[0][0]
-        assert call_url == "https://user-space.hf.space/infer"
+        assert client.last_url == "https://user-space.hf.space/infer"
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_run_sends_date_and_league_codes(self, mock_post):
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"predictions": []},
-        )
-        config = _make_config()
-        svc = InferenceService(config)
-        svc.run(target_date="28/04/2024", league_codes=["E0", "SP1"])
+    @pytest.mark.asyncio
+    async def test_run_sends_date_and_league_codes(self, patch_async_client):
+        client = patch_async_client(FakeAsyncClient(make_response({"predictions": []})))
+        svc = InferenceService(_make_config())
+        await svc.run(target_date="28/04/2024", league_codes=["E0", "SP1"])
 
-        payload = mock_post.call_args[1]["json"]
-        assert payload["date"] == "28/04/2024"
-        assert payload["league_codes"] == ["E0", "SP1"]
+        assert client.last_json["date"] == "28/04/2024"
+        assert client.last_json["league_codes"] == ["E0", "SP1"]
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_run_returns_predictions_list(self, mock_post):
+    @pytest.mark.asyncio
+    async def test_run_returns_predictions_list(self, patch_async_client):
         predictions = [
-            {"home_team": "Arsenal", "away_team": "Chelsea",
-             "predicted_outcome": "Home Win", "confidence": 0.6},
+            {
+                "home_team": "Arsenal",
+                "away_team": "Chelsea",
+                "predicted_outcome": "Home Win",
+                "confidence": 0.6,
+            },
         ]
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"predictions": predictions},
-        )
-        config = _make_config()
-        svc = InferenceService(config)
-        result = svc.run(target_date="28/04/2024")
+        patch_async_client(FakeAsyncClient(make_response({"predictions": predictions})))
+        svc = InferenceService(_make_config())
+        assert await svc.run(target_date="28/04/2024") == predictions
 
-        assert result == predictions
+    @pytest.mark.asyncio
+    async def test_run_returns_empty_list_when_no_predictions(
+        self, patch_async_client
+    ):
+        patch_async_client(FakeAsyncClient(make_response({"predictions": []})))
+        svc = InferenceService(_make_config())
+        assert await svc.run(target_date="28/04/2024") == []
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_run_returns_empty_list_when_no_predictions(self, mock_post):
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"predictions": []},
-        )
-        config = _make_config()
-        svc = InferenceService(config)
-        result = svc.run(target_date="28/04/2024")
-
-        assert result == []
-
-    def test_run_raises_when_inference_disabled(self):
+    @pytest.mark.asyncio
+    async def test_run_raises_when_inference_disabled(self):
         config = _make_config()
         config.inference.enabled = False
         svc = InferenceService(config)
 
         with pytest.raises(RuntimeError, match="disabled"):
-            svc.run()
+            await svc.run()
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_run_sends_none_league_codes_when_not_specified(self, mock_post):
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"predictions": []},
-        )
-        config = _make_config()
-        svc = InferenceService(config)
-        svc.run(target_date="28/04/2024")
+    @pytest.mark.asyncio
+    async def test_run_sends_none_league_codes_when_not_specified(
+        self, patch_async_client
+    ):
+        client = patch_async_client(FakeAsyncClient(make_response({"predictions": []})))
+        svc = InferenceService(_make_config())
+        await svc.run(target_date="28/04/2024")
 
-        payload = mock_post.call_args[1]["json"]
-        assert payload["league_codes"] is None
+        assert client.last_json["league_codes"] is None
+
+    @pytest.mark.asyncio
+    async def test_run_raises_when_space_url_is_empty(self):
+        svc = InferenceService(_make_config(space_url=""))
+        with pytest.raises(RuntimeError, match="HF_SPACE_URL"):
+            await svc.run()

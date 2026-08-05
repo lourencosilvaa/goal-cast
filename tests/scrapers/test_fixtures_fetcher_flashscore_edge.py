@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.scrapers.fixtures_fetcher import _fetch_flashscore_fixtures, fetch_fixtures
 from src.scrapers.base_scraper import FlashScoreFixture
 
@@ -113,68 +111,3 @@ class TestFlashScoreFallbackEdgeCases:
 
         mock_fs.assert_not_called()
 
-
-class TestInferenceServiceEdgeCases:
-
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_space_500_raises_http_error(self, mock_post):
-        import requests as req
-        from src.backend.services.inference_service import InferenceService
-
-        mock_response = MagicMock()
-        mock_response.raise_for_status.side_effect = req.exceptions.HTTPError("500")
-        mock_post.return_value = mock_response
-
-        config = MagicMock()
-        config.inference.enabled = True
-        config.inference.space_url = "https://user.hf.space"
-
-        svc = InferenceService(config)
-
-        with pytest.raises(req.exceptions.HTTPError):
-            svc.run(target_date="28/04/2024")
-
-    def test_disabled_inference_raises_runtime_error(self):
-        from src.backend.services.inference_service import InferenceService
-
-        config = MagicMock()
-        config.inference.enabled = False
-        svc = InferenceService(config)
-
-        with pytest.raises(RuntimeError):
-            svc.run()
-
-
-class TestNvidiaKeyEdgeCases:
-
-    def test_get_nvidia_key_uses_nvidia_service(self):
-        from src.backend.services.api_key_service import ApiKeyService, _SERVICE_NVIDIA
-        svc = ApiKeyService(supabase=MagicMock(), encryption=MagicMock())
-        svc._db.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = MagicMock(data=None)
-
-        result = svc.get_user_key("user-1", service=_SERVICE_NVIDIA)
-
-        assert result is None
-
-    def test_set_nvidia_key_empty_raises(self):
-        from src.backend.services.api_key_service import ApiKeyService, _SERVICE_NVIDIA
-        import pytest
-
-        svc = ApiKeyService(supabase=MagicMock(), encryption=MagicMock())
-
-        with pytest.raises(ValueError):
-            svc.set_user_key("user-1", "", service=_SERVICE_NVIDIA)
-
-    def test_gemini_default_unchanged(self):
-        from src.backend.services.api_key_service import ApiKeyService
-
-        mock_db = MagicMock()
-        mock_db.table.return_value.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = MagicMock(data=None)
-        svc = ApiKeyService(supabase=mock_db, encryption=MagicMock())
-
-        svc.get_user_key("user-1")
-
-        second_eq_calls = str(
-            mock_db.table.return_value.select.return_value.eq.return_value.eq.call_args_list
-        )
-        assert "gemini" in second_eq_calls

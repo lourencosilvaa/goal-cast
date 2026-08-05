@@ -186,6 +186,11 @@ inference:
 evaluation:
   storage_dir: "output/evaluation"
 
+teams:
+  # Static per-league team lists served when the HF Space is unreachable or
+  # returns nothing. Regenerate with: uv run python scripts/build_teams_registry.py
+  registry_path: "src/backend/data/teams_registry.json"
+
 # National-teams (international) prediction track. A parallel, goals-only
 # pipeline trained from the fixed Kaggle dataset (results.csv). Upcoming
 # game lists come from FlashScore using the tournament slug map below.

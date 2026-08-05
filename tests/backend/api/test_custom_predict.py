@@ -1,6 +1,6 @@
 """Tests for POST /api/predictions/custom endpoint."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -21,6 +21,7 @@ class TestCustomPredictEndpoint:
 
     def test_returns_200_with_prediction(self):
         mock_svc = MagicMock()
+        mock_svc.predict_custom = AsyncMock()
         mock_svc.predict_custom.return_value = {
             "home_team": "Sporting CP",
             "away_team": "Tondela",
@@ -40,6 +41,7 @@ class TestCustomPredictEndpoint:
 
     def test_passes_teams_to_service(self):
         mock_svc = MagicMock()
+        mock_svc.predict_custom = AsyncMock()
         mock_svc.predict_custom.return_value = {
             "home_team": "Arsenal", "away_team": "Chelsea",
             "predicted_outcome": "Draw", "confidence": 0.4,
@@ -56,6 +58,7 @@ class TestCustomPredictEndpoint:
 
     def test_service_error_returns_503(self):
         mock_svc = MagicMock()
+        mock_svc.predict_custom = AsyncMock()
         mock_svc.predict_custom.side_effect = RuntimeError("HF Space unavailable")
         res = _make_client(mock_svc).post(
             "/api/predictions/custom",

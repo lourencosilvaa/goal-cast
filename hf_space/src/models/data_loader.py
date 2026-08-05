@@ -74,7 +74,13 @@ class FootballDataLoader:
             df = df[df["Season"] == season]
             if df.empty:
                 return pd.DataFrame()
-            return self._apply_column_filter(df)
+            df = self._apply_column_filter(df)
+            # Parquet files are built from raw CSVs, which carry no League
+            # column — fill it in as the cache and web paths do, so League-aware
+            # consumers keep working when data comes from HF.
+            if "League" not in df.columns:
+                df = df.assign(League=self.config.leagues.get(league, league))
+            return df
         except Exception:
             return pd.DataFrame()
 

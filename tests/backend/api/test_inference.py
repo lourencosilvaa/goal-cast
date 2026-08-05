@@ -1,6 +1,7 @@
-"""Tests for /api/predictions/infer endpoint."""
+"""Tests for the /api/predictions/infer and /api/predictions/teams endpoints."""
 
-import builtins
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,7 +9,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.backend.api import inference as inference_module
-from src.backend.api.inference import router, get_inference_service
+from src.backend.api.inference import (
+    router,
+    get_inference_service,
+    get_team_repository,
+)
 from src.backend.core.auth import get_current_user
 
 
@@ -24,6 +29,7 @@ class TestInferenceEndpoint:
 
     def test_post_returns_200_with_results(self):
         mock_svc = MagicMock()
+        mock_svc.run = AsyncMock()
         mock_svc.run.return_value = [
             {"home_team": "Arsenal", "away_team": "Chelsea",
              "predicted_outcome": "Home Win", "confidence": 0.65}
@@ -36,6 +42,7 @@ class TestInferenceEndpoint:
 
     def test_post_returns_list_in_predictions_key(self):
         mock_svc = MagicMock()
+        mock_svc.run = AsyncMock()
         mock_svc.run.return_value = [
             {"home_team": "Arsenal", "away_team": "Chelsea"}
         ]
@@ -48,6 +55,7 @@ class TestInferenceEndpoint:
 
     def test_post_empty_fixtures_returns_empty_list(self):
         mock_svc = MagicMock()
+        mock_svc.run = AsyncMock()
         mock_svc.run.return_value = []
         res = _make_client(mock_svc).post(
             "/api/predictions/infer",
@@ -57,6 +65,7 @@ class TestInferenceEndpoint:
 
     def test_post_disabled_returns_503(self):
         mock_svc = MagicMock()
+        mock_svc.run = AsyncMock()
         mock_svc.run.side_effect = RuntimeError("inference disabled")
         res = _make_client(mock_svc).post(
             "/api/predictions/infer",
@@ -73,6 +82,7 @@ class TestInferenceEndpoint:
 
     def test_passes_league_code_to_service(self):
         mock_svc = MagicMock()
+        mock_svc.run = AsyncMock()
         mock_svc.run.return_value = []
         _make_client(mock_svc).post(
             "/api/predictions/infer",
@@ -82,124 +92,37 @@ class TestInferenceEndpoint:
         assert "SP1" in str(call_kwargs)
 
 
-_CSV_HEADER = "HomeTeam,AwayTeam\n"
-
-
-def _write_cache_csv(cache_dir, league: str, rows: str) -> None:
-    """Create a season CSV in the layout _load_teams_from_cache globs for."""
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    (cache_dir / f"2024_{league}.csv").write_text(rows)
-
-
-@pytest.fixture
-def no_pandas(monkeypatch):
-    """Simulate the deployed image, where pandas is not installed at all."""
-    real_import = builtins.__import__
-
-    def _blocked(name, *args, **kwargs):
-        if name == "pandas" or name.startswith("pandas."):
-            raise ImportError("No module named 'pandas'")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", _blocked)
-
-
-class TestLoadTeamsFromCache:
-    """The CSV fallback must degrade to {} without pandas installed."""
-
-    def test_missing_cache_dir_returns_empty(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", tmp_path / "absent")
-        assert inference_module._load_teams_from_cache() == {}
-
-    def test_empty_cache_dir_returns_empty(self, tmp_path, monkeypatch):
-        cache_dir = tmp_path / "cache"
-        cache_dir.mkdir()
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", cache_dir)
-        assert inference_module._load_teams_from_cache() == {}
-
-    def test_no_cache_files_never_imports_pandas(
-        self, tmp_path, monkeypatch, no_pandas
-    ):
-        """Production path: no datasets/ in the image, so pandas is never touched."""
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", tmp_path / "absent")
-        assert inference_module._load_teams_from_cache() == {}
-
-    def test_cache_file_without_pandas_degrades_to_empty(
-        self, tmp_path, monkeypatch, no_pandas
-    ):
-        """Even with a cache file present, a missing pandas must not raise."""
-        cache_dir = tmp_path / "cache"
-        _write_cache_csv(cache_dir, "E0", _CSV_HEADER + "Arsenal,Chelsea\n")
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", cache_dir)
-        assert inference_module._load_teams_from_cache() == {}
-
-    def test_reads_teams_from_valid_csv(self, tmp_path, monkeypatch):
-        cache_dir = tmp_path / "cache"
-        _write_cache_csv(
-            cache_dir, "E0", _CSV_HEADER + "Arsenal,Chelsea\nChelsea,Fulham\n"
-        )
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", cache_dir)
-        assert inference_module._load_teams_from_cache() == {
-            "E0": ["Arsenal", "Chelsea", "Fulham"]
-        }
-
-    def test_malformed_csv_is_skipped(self, tmp_path, monkeypatch):
-        cache_dir = tmp_path / "cache"
-        _write_cache_csv(cache_dir, "E0", "Wrong,Columns\n1,2\n")
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", cache_dir)
-        assert inference_module._load_teams_from_cache() == {}
-
-    def test_only_leagues_with_cache_files_are_returned(self, tmp_path, monkeypatch):
-        cache_dir = tmp_path / "cache"
-        _write_cache_csv(cache_dir, "SP1", _CSV_HEADER + "Real Madrid,Barcelona\n")
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", cache_dir)
-        result = inference_module._load_teams_from_cache()
-        assert list(result) == ["SP1"]
+def _registry(tmp_path, payload) -> str:
+    """Write an explicit static registry file and return its path."""
+    path = tmp_path / "teams_registry.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return str(path)
 
 
 class TestGetTeamsEndpoint:
+    """The endpoint delegates to an injected TeamRepository — no pandas, no
+    datasets/ directory, and no silent dependence on the live HF Space."""
 
-    def _client(self, mock_service) -> TestClient:
+    def _client(self, repository) -> TestClient:
         app = FastAPI()
         app.include_router(router)
         app.dependency_overrides[get_current_user] = lambda: "user-123"
-        app.dependency_overrides[get_inference_service] = lambda: mock_service
+        app.dependency_overrides[get_team_repository] = lambda: repository
         return TestClient(app, raise_server_exceptions=False)
 
-    def test_returns_service_data_when_leagues_differ(self):
-        mock_svc = MagicMock()
-        mock_svc.get_teams = AsyncMock(
-            return_value={"E0": ["Arsenal"], "SP1": ["Barcelona"]}
-        )
-        res = self._client(mock_svc).get("/api/predictions/teams")
+    def test_returns_repository_data(self):
+        repo = AsyncMock()
+        repo.get_teams.return_value = {"E0": ["Arsenal"], "SP1": ["Barcelona"]}
+        res = self._client(repo).get("/api/predictions/teams")
         assert res.status_code == 200
         assert res.json() == {"E0": ["Arsenal"], "SP1": ["Barcelona"]}
 
-    def test_identical_league_data_falls_back_to_cache(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", tmp_path / "absent")
-        mock_svc = MagicMock()
-        mock_svc.get_teams = AsyncMock(
-            return_value={"E0": ["Arsenal"], "SP1": ["Arsenal"]}
-        )
-        res = self._client(mock_svc).get("/api/predictions/teams")
+    def test_empty_repository_returns_empty_object(self):
+        repo = AsyncMock()
+        repo.get_teams.return_value = {}
+        res = self._client(repo).get("/api/predictions/teams")
         assert res.status_code == 200
         assert res.json() == {}
-
-    def test_service_failure_falls_back_to_cache(self, tmp_path, monkeypatch):
-        cache_dir = tmp_path / "cache"
-        _write_cache_csv(cache_dir, "E0", _CSV_HEADER + "Arsenal,Chelsea\n")
-        monkeypatch.setattr(inference_module, "_CACHE_DIR", cache_dir)
-        mock_svc = MagicMock()
-        mock_svc.get_teams = AsyncMock(side_effect=RuntimeError("space down"))
-        res = self._client(mock_svc).get("/api/predictions/teams")
-        assert res.status_code == 200
-        assert res.json() == {"E0": ["Arsenal", "Chelsea"]}
-
-    def test_single_league_response_is_not_treated_as_duplicate(self):
-        mock_svc = MagicMock()
-        mock_svc.get_teams = AsyncMock(return_value={"E0": ["Arsenal", "Chelsea"]})
-        res = self._client(mock_svc).get("/api/predictions/teams")
-        assert res.json() == {"E0": ["Arsenal", "Chelsea"]}
 
     def test_unauthenticated_returns_401(self):
         app = FastAPI()
@@ -208,3 +131,92 @@ class TestGetTeamsEndpoint:
             "/api/predictions/teams"
         )
         assert res.status_code == 401
+
+
+class TestTeamRepositoryProvider:
+    """get_team_repository must wire the Space first and the static registry
+    second, using only values taken from the injected config."""
+
+    @staticmethod
+    def _request(registry_path: str, space_teams) -> MagicMock:
+        config = MagicMock()
+        config.inference.enabled = True
+        config.inference.space_url = "https://space.test"
+        config.teams.registry_path = registry_path
+        request = MagicMock()
+        request.app.state.config = config
+        return request
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_registry_when_space_returns_empty(
+        self, tmp_path, monkeypatch
+    ):
+        """The live regression: the Space answered {} and the UI went blank."""
+        path = _registry(tmp_path, {"E0": ["Arsenal", "Chelsea"]})
+        monkeypatch.setattr(
+            inference_module.InferenceService,
+            "get_teams",
+            AsyncMock(return_value={}),
+        )
+        repo = inference_module.get_team_repository(self._request(path, {}))
+        assert await repo.get_teams() == {"E0": ["Arsenal", "Chelsea"]}
+
+    @pytest.mark.asyncio
+    async def test_space_data_wins_when_available(self, tmp_path, monkeypatch):
+        path = _registry(tmp_path, {"E0": ["Stale FC"]})
+        monkeypatch.setattr(
+            inference_module.InferenceService,
+            "get_teams",
+            AsyncMock(return_value={"E0": ["Arsenal"], "SP1": ["Barcelona"]}),
+        )
+        repo = inference_module.get_team_repository(self._request(path, {}))
+        assert await repo.get_teams() == {"E0": ["Arsenal"], "SP1": ["Barcelona"]}
+
+    @pytest.mark.asyncio
+    async def test_space_failure_falls_back_to_registry(self, tmp_path, monkeypatch):
+        path = _registry(tmp_path, {"E0": ["Arsenal"]})
+        monkeypatch.setattr(
+            inference_module.InferenceService,
+            "get_teams",
+            AsyncMock(side_effect=RuntimeError("space down")),
+        )
+        repo = inference_module.get_team_repository(self._request(path, {}))
+        assert await repo.get_teams() == {"E0": ["Arsenal"]}
+
+
+class TestShippedTeamsRegistry:
+    """The registry file is the deployed fallback — it must exist and be sane."""
+
+    def test_registry_path_from_config_exists(self):
+        from config.config_loader import load_config
+
+        path = Path(load_config("config/config.yaml").teams.registry_path)
+        assert path.exists()
+
+    def test_registry_covers_every_configured_league(self):
+        from config.config_loader import load_config
+
+        config = load_config("config/config.yaml")
+        registry = json.loads(
+            Path(config.teams.registry_path).read_text(encoding="utf-8")
+        )
+        assert set(registry) == set(config.data.leagues)
+
+    def test_each_league_has_teams(self):
+        from config.config_loader import load_config
+
+        config = load_config("config/config.yaml")
+        registry = json.loads(
+            Path(config.teams.registry_path).read_text(encoding="utf-8")
+        )
+        assert all(len(teams) >= 2 for teams in registry.values())
+
+    def test_leagues_do_not_share_identical_team_lists(self):
+        from config.config_loader import load_config
+
+        config = load_config("config/config.yaml")
+        registry = json.loads(
+            Path(config.teams.registry_path).read_text(encoding="utf-8")
+        )
+        lists = [tuple(v) for v in registry.values()]
+        assert len(set(lists)) == len(lists)

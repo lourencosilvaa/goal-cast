@@ -349,7 +349,7 @@ class TestUploadScriptParquetBuilding:
         """_build_parquet_datasets creates one Parquet per league."""
         import sys
         sys.path.insert(0, str(Path(__file__).parents[2]))
-        from src.scripts.upload_to_hf import _build_parquet_datasets
+        from scripts.upload_to_hf import _build_parquet_datasets
 
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -373,7 +373,7 @@ class TestUploadScriptParquetBuilding:
         """Each Parquet file contains all seasons for that league."""
         import sys
         sys.path.insert(0, str(Path(__file__).parents[2]))
-        from src.scripts.upload_to_hf import _build_parquet_datasets
+        from scripts.upload_to_hf import _build_parquet_datasets
 
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -394,7 +394,7 @@ class TestUploadScriptParquetBuilding:
         """Empty cache directory produces no Parquet files."""
         import sys
         sys.path.insert(0, str(Path(__file__).parents[2]))
-        from src.scripts.upload_to_hf import _build_parquet_datasets
+        from scripts.upload_to_hf import _build_parquet_datasets
 
         cache_dir = tmp_path / "empty_cache"
         cache_dir.mkdir()

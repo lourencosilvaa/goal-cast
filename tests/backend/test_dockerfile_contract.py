@@ -45,3 +45,33 @@ class TestDockerfileRuntimeContract:
         assert len(sync_lines) == 1
         assert "--only-group backend" in sync_lines[0]
         assert "--no-dev" in sync_lines[0]
+
+
+class TestTeamsRegistryShipsInImage:
+    """The static teams registry is the offline fallback for /teams — if the
+    image does not carry it, the custom-prediction pickers go blank whenever
+    the HF Space is unreachable."""
+
+    def test_registry_file_exists_in_repo(self):
+        from config.config_loader import load_config
+
+        registry = PROJECT_ROOT / load_config(
+            PROJECT_ROOT / "config" / "config.yaml"
+        ).teams.registry_path
+        assert registry.exists()
+
+    def test_registry_is_under_a_copied_path(self):
+        """It must live beneath a directory the Dockerfile actually COPYs."""
+        from config.config_loader import load_config
+
+        registry_path = load_config(
+            PROJECT_ROOT / "config" / "config.yaml"
+        ).teams.registry_path
+        copied = [
+            line.split()[1]
+            for line in _dockerfile_lines()
+            if line.startswith("COPY") and not line.startswith("COPY --from")
+        ]
+        assert any(registry_path.startswith(prefix) for prefix in copied), (
+            f"{registry_path} is not covered by any COPY in the Dockerfile: {copied}"
+        )

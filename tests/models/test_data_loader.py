@@ -183,6 +183,60 @@ class TestLoadFromHFParquet:
         assert df.empty
 
 
+class TestParquetWithoutLeagueColumn:
+    """Regression: upload_to_hf builds Parquet straight from raw CSVs, which
+    carry no ``League`` column. The HF Parquet path must fill it in from config
+    like the CSV-cache and web paths do — otherwise every League-aware consumer
+    (e.g. the Space's /teams endpoint) silently sees nothing."""
+
+    @staticmethod
+    def _write_leagueless_parquet(tmp_path: Path, league: str = "E0") -> Path:
+        datasets_dir = tmp_path / "datasets"
+        datasets_dir.mkdir(exist_ok=True)
+        rows = [
+            {"Date": "01/09/2023", "HomeTeam": "Arsenal", "AwayTeam": "Chelsea",
+             "FTHG": 1, "FTAG": 0, "FTR": "H", "Season": "2324"}
+        ]
+        pd.DataFrame(rows).to_parquet(datasets_dir / f"{league}.parquet", index=False)
+        return datasets_dir
+
+    @staticmethod
+    def _hf_cfg(tmp_path: Path) -> HuggingFaceConfig:
+        return HuggingFaceConfig(
+            repo_id="x", hf_token="", local_dir=str(tmp_path),
+            model_filename="m.joblib", dataset_subfolder="datasets",
+        )
+
+    def test_league_column_is_added_from_config(self, data_config, tmp_path):
+        from src.models.data_loader import FootballDataLoader
+        self._write_leagueless_parquet(tmp_path)
+        loader = FootballDataLoader(data_config, hf_config=self._hf_cfg(tmp_path))
+        df = loader._load_from_hf_parquet("E0", "2324")
+        assert "League" in df.columns
+        assert all(df["League"] == "Premier League")
+
+    def test_season_column_is_preserved(self, data_config, tmp_path):
+        from src.models.data_loader import FootballDataLoader
+        self._write_leagueless_parquet(tmp_path)
+        loader = FootballDataLoader(data_config, hf_config=self._hf_cfg(tmp_path))
+        df = loader._load_from_hf_parquet("E0", "2324")
+        assert all(df["Season"] == "2324")
+
+    def test_existing_league_values_are_not_overwritten(self, data_config, tmp_path):
+        from src.models.data_loader import FootballDataLoader
+        datasets_dir = tmp_path / "datasets"
+        datasets_dir.mkdir(exist_ok=True)
+        rows = [
+            {"Date": "01/09/2023", "HomeTeam": "Arsenal", "AwayTeam": "Chelsea",
+             "FTHG": 1, "FTAG": 0, "FTR": "H", "League": "Custom Name",
+             "Season": "2324"}
+        ]
+        pd.DataFrame(rows).to_parquet(datasets_dir / "E0.parquet", index=False)
+        loader = FootballDataLoader(data_config, hf_config=self._hf_cfg(tmp_path))
+        df = loader._load_from_hf_parquet("E0", "2324")
+        assert all(df["League"] == "Custom Name")
+
+
 class TestSaveAsParquet:
 
     def test_save_as_parquet_creates_files(self, data_config, tmp_path):
@@ -241,3 +295,32 @@ class TestSeasonsConfig:
         from config.config_loader import load_config
         config = load_config(config_path)
         assert len(config.data.seasons) >= 8
+
+
+class TestSpaceDataLoaderStaysInSync:
+    """``hf_space/src/models/data_loader.py`` is a vendored copy pushed to the
+    HuggingFace Space by deploy-hf-space.yml. The League back-fill has to exist
+    in both copies or the Space's /teams endpoint silently returns {}."""
+
+    @staticmethod
+    def _space_loader_source() -> str:
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "hf_space"
+            / "src"
+            / "models"
+            / "data_loader.py"
+        )
+        return path.read_text(encoding="utf-8")
+
+    def test_space_copy_exists(self):
+        assert self._space_loader_source()
+
+    def test_space_copy_backfills_league_column(self):
+        assert 'if "League" not in df.columns:' in self._space_loader_source()
+
+    def test_space_copy_uses_configured_league_names(self):
+        assert (
+            "df.assign(League=self.config.leagues.get(league, league))"
+            in self._space_loader_source()
+        )

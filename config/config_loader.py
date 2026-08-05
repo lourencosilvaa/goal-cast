@@ -178,6 +178,16 @@ class EvaluationConfig(BaseModel):
     storage_dir: str = "output/evaluation"
 
 
+class TeamsConfig(BaseModel):
+    """Static team-name registry used as the offline fallback for /teams.
+
+    The file ships inside ``src/backend/`` so the deployed backend image
+    carries it without needing ``datasets/`` or pandas.
+    """
+
+    registry_path: str = "src/backend/data/teams_registry.json"
+
+
 class HuggingFaceConfig(BaseModel):
     repo_id: str = ""
     hf_token: str = ""
@@ -233,6 +243,7 @@ class Config(BaseModel):
     odds_api: OddsAPIConfig = OddsAPIConfig()
     retrain_check: RetrainCheckConfig = RetrainCheckConfig()
     evaluation: EvaluationConfig = EvaluationConfig()
+    teams: TeamsConfig = TeamsConfig()
     huggingface: HuggingFaceConfig = HuggingFaceConfig()
     inference: InferenceConfig = InferenceConfig()
     international: InternationalConfig = InternationalConfig(
