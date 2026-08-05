@@ -1,11 +1,14 @@
-"""Edge case tests for InferenceService HTTP client."""
+"""Edge case tests for the InferenceService async httpx client."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
+import httpx
 import pytest
-import requests
 
 from src.backend.services.inference_service import InferenceService
+from tests.backend.services.conftest import FakeAsyncClient, make_response
+
+_EXPECTED_TIMEOUT_SECONDS = 120
 
 
 def _make_config(space_url: str = "https://user-space.hf.space") -> MagicMock:
@@ -17,82 +20,73 @@ def _make_config(space_url: str = "https://user-space.hf.space") -> MagicMock:
 
 class TestInferenceServiceEdgeCases:
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_trailing_slash_in_space_url_is_stripped(self, mock_post):
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"predictions": []},
+    @pytest.mark.asyncio
+    async def test_trailing_slash_in_space_url_is_stripped(self, patch_async_client):
+        client = patch_async_client(FakeAsyncClient(make_response({"predictions": []})))
+        svc = InferenceService(_make_config("https://user-space.hf.space/"))
+        await svc.run(target_date="28/04/2024")
+
+        assert client.last_url == "https://user-space.hf.space/infer"
+
+    @pytest.mark.asyncio
+    async def test_space_connection_error_propagates(self, patch_async_client):
+        patch_async_client(
+            FakeAsyncClient(request_error=httpx.ConnectError("unreachable"))
         )
-        config = _make_config("https://user-space.hf.space/")
-        svc = InferenceService(config)
-        svc.run(target_date="28/04/2024")
+        svc = InferenceService(_make_config())
 
-        call_url = mock_post.call_args[0][0]
-        assert call_url == "https://user-space.hf.space/infer"
+        with pytest.raises(httpx.ConnectError):
+            await svc.run(target_date="28/04/2024")
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_space_connection_error_propagates(self, mock_post):
-        mock_post.side_effect = requests.exceptions.ConnectionError("unreachable")
-
-        config = _make_config()
-        svc = InferenceService(config)
-
-        with pytest.raises(requests.exceptions.ConnectionError):
-            svc.run(target_date="28/04/2024")
-
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_space_timeout_propagates(self, mock_post):
-        mock_post.side_effect = requests.exceptions.Timeout("timed out")
-
-        config = _make_config()
-        svc = InferenceService(config)
-
-        with pytest.raises(requests.exceptions.Timeout):
-            svc.run(target_date="28/04/2024")
-
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_space_500_raises_http_error(self, mock_post):
-        mock_response = MagicMock()
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            "500 Server Error"
+    @pytest.mark.asyncio
+    async def test_space_timeout_propagates(self, patch_async_client):
+        patch_async_client(
+            FakeAsyncClient(request_error=httpx.ReadTimeout("timed out"))
         )
-        mock_post.return_value = mock_response
+        svc = InferenceService(_make_config())
 
-        config = _make_config()
-        svc = InferenceService(config)
+        with pytest.raises(httpx.ReadTimeout):
+            await svc.run(target_date="28/04/2024")
 
-        with pytest.raises(requests.exceptions.HTTPError):
-            svc.run(target_date="28/04/2024")
-
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_missing_predictions_key_returns_empty_list(self, mock_post):
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {},
+    @pytest.mark.asyncio
+    async def test_space_500_raises_http_error(self, patch_async_client):
+        patch_async_client(
+            FakeAsyncClient(
+                make_response(
+                    status_error=httpx.HTTPStatusError(
+                        "500 Server Error",
+                        request=httpx.Request("POST", "https://user-space.hf.space"),
+                        response=httpx.Response(500),
+                    )
+                )
+            )
         )
-        config = _make_config()
-        svc = InferenceService(config)
-        result = svc.run(target_date="28/04/2024")
+        svc = InferenceService(_make_config())
 
-        assert result == []
+        with pytest.raises(httpx.HTTPStatusError):
+            await svc.run(target_date="28/04/2024")
 
-    @patch("src.backend.services.inference_service.requests.post")
-    def test_request_uses_120s_timeout(self, mock_post):
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"predictions": []},
-        )
-        config = _make_config()
-        svc = InferenceService(config)
-        svc.run()
+    @pytest.mark.asyncio
+    async def test_missing_predictions_key_returns_empty_list(
+        self, patch_async_client
+    ):
+        patch_async_client(FakeAsyncClient(make_response({})))
+        svc = InferenceService(_make_config())
+        assert await svc.run(target_date="28/04/2024") == []
 
-        call_kwargs = mock_post.call_args[1]
-        assert call_kwargs.get("timeout") == 120
+    @pytest.mark.asyncio
+    async def test_request_uses_120s_timeout(self, patch_async_client):
+        client = patch_async_client(FakeAsyncClient(make_response({"predictions": []})))
+        svc = InferenceService(_make_config())
+        await svc.run()
 
-    def test_disabled_with_space_url_still_raises(self):
+        assert client.init_kwargs.get("timeout") == _EXPECTED_TIMEOUT_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_disabled_with_space_url_still_raises(self):
         config = _make_config("https://user-space.hf.space")
         config.inference.enabled = False
         svc = InferenceService(config)
 
         with pytest.raises(RuntimeError, match="disabled"):
-            svc.run()
+            await svc.run()

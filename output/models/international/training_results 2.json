@@ -1,0 +1,59 @@
+{
+  "cross_validation": {
+    "Logistic Regression": {
+      "accuracy_mean": 0.5565415244596131,
+      "accuracy_std": 0.012742767715081527,
+      "log_loss_mean": 1.0016067534454811,
+      "log_loss_std": 0.07853137241222573
+    },
+    "Random Forest": {
+      "accuracy_mean": 0.5533560864618885,
+      "accuracy_std": 0.01649431816851614,
+      "log_loss_mean": 0.9260003985033027,
+      "log_loss_std": 0.020241064349957934
+    },
+    "XGBoost": {
+      "accuracy_mean": 0.5311717861205916,
+      "accuracy_std": 0.05851956926427417,
+      "log_loss_mean": 0.9864769542978952,
+      "log_loss_std": 0.07751293415021468
+    }
+  },
+  "ensemble": {
+    "log_loss_uncalibrated": 0.8913426210217099,
+    "brier": 0.5111298591483031,
+    "accuracy": 0.6076789382208879,
+    "log_loss": 0.8738070457084687
+  },
+  "features_count": 25,
+  "samples_count": 31647,
+  "feature_names": [
+    "home_avg_GF",
+    "away_avg_GF",
+    "diff_avg_GF",
+    "home_avg_GA",
+    "away_avg_GA",
+    "diff_avg_GA",
+    "home_Form",
+    "away_Form",
+    "diff_Form",
+    "h2h_home_wins",
+    "h2h_draws",
+    "h2h_total_goals_avg",
+    "home_draw_pct",
+    "away_draw_pct",
+    "avg_draw_pct",
+    "form_gap",
+    "attack_similarity",
+    "defense_similarity",
+    "combined_defensive",
+    "is_neutral",
+    "elo_home",
+    "elo_away",
+    "elo_diff",
+    "elo_expected_home",
+    "elo_expected_away"
+  ],
+  "last_match_date": "2026-07-15",
+  "track": "international"
+}

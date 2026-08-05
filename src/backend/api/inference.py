@@ -1,50 +1,36 @@
 """On-demand inference endpoint: runs the HF model directly for a given date."""
 
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from src.backend.core.auth import get_current_user
+from src.backend.repositories.team_repository import (
+    FallbackTeamRepository,
+    RemoteTeamRepository,
+    StaticTeamRepository,
+    TeamRepository,
+)
 from src.backend.services.inference_service import InferenceService
 
 router = APIRouter(prefix="/api/predictions", tags=["inference"])
-
-_LEAGUE_CODES = ["E0", "SP1", "D1", "I1", "F1", "P1"]
-_CACHE_DIR = Path("datasets/cache")
-
-
-def _load_teams_from_cache() -> dict[str, list[str]]:
-    """Load teams from local CSV cache for the latest season.
-
-    ``pandas`` is imported lazily, only once a cache file is actually found.
-    The deployed image ships the ``backend`` dependency group without pandas
-    and never copies ``datasets/``, so this stays a no-op there instead of
-    raising ImportError.
-    """
-    result: dict[str, list[str]] = {}
-    for league in _LEAGUE_CODES:
-        # Find latest season file for this league
-        files = sorted(_CACHE_DIR.glob(f"*_{league}.csv"), reverse=True)
-        if not files:
-            continue
-        try:
-            import pandas as pd
-
-            df = pd.read_csv(
-                files[0], encoding="utf-8", usecols=["HomeTeam", "AwayTeam"]
-            )
-            teams = sorted(set(df["HomeTeam"].unique()) | set(df["AwayTeam"].unique()))
-            result[league] = teams
-        except Exception:
-            continue
-    return result
 
 
 def get_inference_service(request: Request) -> InferenceService:
     config = request.app.state.config
     return InferenceService(config)
+
+
+def get_team_repository(request: Request) -> TeamRepository:
+    """Space first (freshest), shipped registry second (always available)."""
+    config = request.app.state.config
+    return FallbackTeamRepository(
+        [
+            RemoteTeamRepository(get_inference_service(request)),
+            StaticTeamRepository(config.teams.registry_path),
+        ]
+    )
 
 
 class InferenceResponse(BaseModel):
@@ -115,16 +101,7 @@ async def predict_custom(
 @router.get("/teams")
 async def get_teams(
     user_id: Annotated[str, Depends(get_current_user)],
-    inference_svc: Annotated[InferenceService, Depends(get_inference_service)],
+    team_repo: Annotated[TeamRepository, Depends(get_team_repository)],
 ) -> dict[str, list[str]]:
     """Return available team names grouped by league code."""
-    try:
-        data = await inference_svc.get_teams()
-        # Validate: if all leagues have the same teams, the data is bad
-        team_lists = list(data.values())
-        if len(team_lists) >= 2 and all(t == team_lists[0] for t in team_lists[1:]):
-            return _load_teams_from_cache()
-        return data
-    except Exception:
-        # Fallback: load teams from local CSV cache
-        return _load_teams_from_cache()
+    return await team_repo.get_teams()

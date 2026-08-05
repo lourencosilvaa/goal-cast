@@ -82,10 +82,50 @@ class TestRegisterUser:
 
         assert res.status_code == 401
 
-    def test_register_missing_token_returns_422(self) -> None:
+    def test_register_without_token_or_user_id_returns_400(self) -> None:
+        """Both fields are optional on the model, so an empty body is a valid
+        request that the handler rejects with 400 — not a 422 schema error."""
         mock_service = MagicMock()
-        res = _make_client(mock_service).post("/api/users/register", json={})
-        assert res.status_code == 422
+        with patch(
+            "src.backend.api.profile.get_supabase_client", return_value=MagicMock()
+        ):
+            res = _make_client(mock_service).post("/api/users/register", json={})
+        assert res.status_code == 400
+        assert "token or user_id" in res.json()["detail"]
+
+    def test_register_with_user_id_verifies_via_admin_api(self) -> None:
+        """Email-confirmation-pending path: no token, but a known user_id."""
+        mock_service = MagicMock()
+        mock_supabase = MagicMock()
+        mock_supabase.auth.admin.get_user_by_id.return_value = MagicMock(
+            user=MagicMock(id="pending-uid", email="pending@user.com")
+        )
+
+        with patch(
+            "src.backend.api.profile.get_supabase_client", return_value=mock_supabase
+        ):
+            res = _make_client(mock_service).post(
+                "/api/users/register",
+                json={"user_id": "pending-uid"},
+            )
+
+        assert res.status_code == 201
+        mock_supabase.auth.admin.get_user_by_id.assert_called_once_with("pending-uid")
+
+    def test_register_with_unknown_user_id_returns_401(self) -> None:
+        mock_service = MagicMock()
+        mock_supabase = MagicMock()
+        mock_supabase.auth.admin.get_user_by_id.return_value = MagicMock(user=None)
+
+        with patch(
+            "src.backend.api.profile.get_supabase_client", return_value=mock_supabase
+        ):
+            res = _make_client(mock_service).post(
+                "/api/users/register",
+                json={"user_id": "ghost-uid"},
+            )
+
+        assert res.status_code == 401
 
     def test_register_when_profile_exists_still_returns_201(self) -> None:
         """Idempotent: re-registering (e.g. page refresh) should not crash."""
