@@ -218,6 +218,7 @@ football-prediction-agent/
 │   ├── tune_xgboost.py            # Offline XGBoost log-loss search (report-only)
 │   ├── tune_blend_weight.py       # Offline ensemble/Poisson blend-weight sweep
 │   ├── upload_to_hf.py            # Upload model + Parquet datasets to HF
+│   ├── restart_hf_space.py        # Restart the HF Space so it reloads the new data
 │   ├── run_inference.py           # Offline inference → Supabase upload
 │   ├── find_value_bets.py         # Full prediction + value pipeline (local)
 │   └── predict_match.py           # Predict a single match (local)
@@ -440,7 +441,7 @@ Add these in **GitHub → Settings → Secrets and variables → Actions**:
 |--------|-------------|
 | `HF_TOKEN` | Hugging Face access token |
 | `HF_REPO_ID` | HF model repo ID (`user/repo`) |
-| `HF_SPACE_REPO_ID` | HF Space repo ID (`user/space-name`) — used by `deploy-hf-space.yml` |
+| `HF_SPACE_REPO_ID` | HF Space repo ID (`user/space-name`) — used by `deploy-hf-space.yml` and by the post-retrain Space restart |
 | `SUPABASE_URL` | Supabase project URL (for inference job) |
 | `SUPABASE_SERVICE_KEY` | Service role secret (for inference job) |
 | `RENDER_DEPLOY_HOOK_URL` | Render deploy hook (backend service → Settings → Deploy Hook) |
@@ -453,8 +454,11 @@ Runs **every Monday at 06:00 UTC** (or manually via *Run workflow*, with an opti
 2. Downloads fresh data from football-data.co.uk
 3. Retrains the model (ensemble + calibration + Dixon-Coles) across all 8 seasons — **only if there is new data** (`ModelCacheManager.should_retrain` compares the latest match date to the model's `last_match_date`; `--force`/the `force` toggle overrides)
 4. Uploads model artefacts + updated Parquet datasets to Hugging Face — **skipped when no retraining happened**
-5. Triggers the Render redeploy — **also skipped when no retraining happened**
-6. Clears the retraining banner flag (always)
+5. Restarts the Hugging Face Space (`scripts/restart_hf_space.py`) — **also skipped when no retraining happened**
+6. Triggers the Render redeploy — **also skipped when no retraining happened**
+7. Clears the retraining banner flag (always)
+
+> **Why step 5 exists:** the Space builds its match history once, in `lifespan`, from the Parquet snapshot on the Hub. A running Space therefore keeps answering `/team-insights` from the frame it booted with, so uploading newer results changes nothing until it reboots — team pages silently freeze at the last restart. The step fails the job on error rather than warning, because silent staleness is the failure mode it exists to prevent.
 
 > The schedule is time-based, not data-triggered. The "only when there's new data" behaviour is enforced inside `train_model.py`, which exposes a `retrained` step output so steps 4–5 are gated on it — a no-new-data week no longer redeploys needlessly.
 
@@ -594,6 +598,9 @@ uv run python scripts/tune_blend_weight.py
 
 # Upload model + Parquet datasets to Hugging Face
 HF_TOKEN=hf_... HF_REPO_ID=user/repo uv run python scripts/upload_to_hf.py
+
+# Restart the Space so it reloads the uploaded snapshot (--dry-run to preview)
+HF_TOKEN=hf_... HF_SPACE_REPO_ID=user/space uv run python scripts/restart_hf_space.py
 
 # Run inference and upload predictions to Supabase
 SUPABASE_URL=... SUPABASE_SERVICE_KEY=... HF_TOKEN=... HF_REPO_ID=... \

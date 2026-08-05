@@ -171,6 +171,10 @@ huggingface:
   local_dir: "/tmp/hf_models"  # Override via HF_LOCAL_DIR env var
   model_filename: "ensemble_model.joblib"
   dataset_subfolder: "datasets"
+  # Space repo restarted after each retrain upload. The Space loads its match
+  # history once at boot, so without this restart it keeps serving the snapshot
+  # it started with and new results never reach the UI.
+  space_repo_id: ""  # Set via HF_SPACE_REPO_ID env var
 
 supabase:
   url: ""  # Set via SUPABASE_URL env var

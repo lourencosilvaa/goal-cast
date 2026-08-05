@@ -76,6 +76,17 @@ jobs:
         if: ${{ steps.train.outputs.retrained == 'true' }}
         run: uv run python scripts/upload_to_hf.py
 
+      # ── 5b. Restart the HF Space so it reloads the new dataset snapshot ────
+      # The Space reads its match history once, at boot. Without this restart it
+      # keeps serving the snapshot it started with, so freshly uploaded results
+      # never reach the UI. Failure here is fatal on purpose: silent staleness
+      # is exactly the failure mode this step exists to prevent.
+      - name: Restart HuggingFace Space
+        if: ${{ steps.train.outputs.retrained == 'true' }}
+        env:
+          HF_SPACE_REPO_ID: ${{ secrets.HF_SPACE_REPO_ID }}
+        run: uv run python scripts/restart_hf_space.py
+
       # ── 6. Trigger Render redeploy (backend restarts and downloads new model from HF) ──
       - name: Trigger Render redeploy
         if: ${{ steps.train.outputs.retrained == 'true' && env.RENDER_DEPLOY_HOOK_URL != '' }}

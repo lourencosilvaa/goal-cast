@@ -55,3 +55,21 @@ class TestConfigLoader:
         assert config.output.reports_dir != ""
         assert config.output.models_dir != ""
         assert config.output.plots_dir != ""
+
+    def test_space_repo_id_defaults_to_empty(self, config_path: Path, monkeypatch):
+        monkeypatch.delenv("HF_SPACE_REPO_ID", raising=False)
+        config = load_config(config_path)
+        assert config.huggingface.space_repo_id == ""
+
+    def test_space_repo_id_read_from_environment(self, config_path: Path, monkeypatch):
+        monkeypatch.setenv("HF_SPACE_REPO_ID", "tester/goal-cast-space")
+        config = load_config(config_path)
+        assert config.huggingface.space_repo_id == "tester/goal-cast-space"
+
+    def test_empty_space_repo_id_env_does_not_override(
+        self, config_path: Path, monkeypatch
+    ):
+        """An exported-but-blank secret must not read as a configured value."""
+        monkeypatch.setenv("HF_SPACE_REPO_ID", "")
+        config = load_config(config_path)
+        assert config.huggingface.space_repo_id == ""
