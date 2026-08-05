@@ -24,21 +24,56 @@ from src.models.elo import FootballELO
 from src.models.feature_engineer import FeatureEngineer
 from src.models.model_cache_manager import ModelCacheManager
 from src.models.poisson.dixon_coles import DixonColesModel
+from src.models.retrain_policy import RetrainContext, ThresholdRetrainPolicy
 from src.models.time_weighting import TimeDecayWeighter
 from src.models.trainer import ModelTrainer
 
 
-def _emit_retrained(value: bool) -> None:
-    """Signal to CI whether training actually ran.
-
-    Writes ``retrained=true|false`` to the GitHub Actions step output so the
-    workflow can skip the upload + redeploy steps when nothing was retrained
-    (a no-new-data week). No-op outside GitHub Actions.
-    """
+def _emit_output(name: str, value: bool) -> None:
+    """Write one boolean GitHub Actions step output. No-op outside CI."""
     output_path = os.environ.get("GITHUB_OUTPUT")
     if output_path:
         with open(output_path, "a") as fh:
-            fh.write(f"retrained={'true' if value else 'false'}\n")
+            fh.write(f"{name}={'true' if value else 'false'}\n")
+
+
+def _emit_retrained(value: bool) -> None:
+    """Signal whether the model was actually refit.
+
+    Gates the artefact upload and the Render redeploy. Deliberately separate
+    from ``data_changed``: holding a refit back must not stop fresh data from
+    reaching the Space.
+    """
+    _emit_output("retrained", value)
+
+
+def _emit_data_changed(value: bool) -> None:
+    """Signal whether the loaded data holds matches the model has not seen.
+
+    Gates the dataset upload and the Space restart. The Space builds its match
+    history once at boot, so without this signal new results never reach the UI
+    on a week where the refit was held back.
+    """
+    _emit_output("data_changed", value)
+
+
+def _count_new_matches(
+    raw_data: "pd.DataFrame", last_trained: "pd.Timestamp | None"
+) -> int:
+    """Matches in the loaded data newer than the model's training cut-off.
+
+    Feeds ``retrain_check.min_new_matches``. A model that was never trained has
+    seen nothing, so the whole corpus counts as new. Unparseable dates are
+    excluded rather than guessed.
+    """
+    import pandas as pd
+
+    if "Date" not in raw_data.columns:
+        return 0
+    if last_trained is None:
+        return int(len(raw_data))
+    dates = pd.to_datetime(raw_data["Date"], dayfirst=True, errors="coerce")
+    return int((dates > last_trained).sum())
 
 
 def main() -> None:
@@ -83,14 +118,28 @@ def main() -> None:
         except Exception:
             pass
 
-    if not args.force and not cache_manager.should_retrain(latest_data_date=latest_date):
-        print(f"\nModel is up to date (last match date: {cache_manager.get_last_match_date().date()}). Skipping training.")
+    last_trained = cache_manager.get_last_match_date()
+    context = RetrainContext(
+        model_exists=cache_manager.model_exists(),
+        last_trained_date=last_trained,
+        latest_data_date=latest_date,
+        new_match_count=_count_new_matches(raw_data, last_trained),
+    )
+    _emit_data_changed(context.has_new_data)
+
+    decision = ThresholdRetrainPolicy(config.retrain_check).decide(context)
+    if not args.force and not decision.should_retrain:
+        print(f"\nSkipping training: {decision.reason}.")
+        if context.has_new_data:
+            print(
+                f"Data is still fresh to {latest_date.date()} — the dataset "
+                "snapshot will be republished and the Space restarted."
+            )
         print("Use --force to retrain anyway.")
         _emit_retrained(False)
         sys.exit(0)
 
-    if latest_date:
-        print(f"New data detected up to {latest_date.date()}. Retraining model...")
+    print(f"\nRetraining: {'forced' if args.force else decision.reason}.")
 
     # Clean data
     print("\n=== Cleaning Data ===")

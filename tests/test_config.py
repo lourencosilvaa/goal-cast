@@ -73,3 +73,49 @@ class TestConfigLoader:
         monkeypatch.setenv("HF_SPACE_REPO_ID", "")
         config = load_config(config_path)
         assert config.huggingface.space_repo_id == ""
+
+    def test_min_new_matches_holds_refits_to_roughly_monthly(self, config_path: Path):
+        """~190 matches land per weekly round across the configured leagues."""
+        config = load_config(config_path)
+        assert config.retrain_check.min_new_matches == 800
+
+
+class TestLeagueAndSeasonCoverage:
+    """Coverage is a contract: the Space and the trainer must agree on it."""
+
+    #: football-data.co.uk main divisions carrying the full stat schema. EC is
+    #: deliberately absent — it ships no shot/foul/corner columns, so every one
+    #: of its rows is dropped by FeatureEngineer.build_match_features.
+    EXPECTED_LEAGUES = {
+        "E0", "E1", "E2", "E3",
+        "SC0", "SC1", "SC2", "SC3",
+        "D1", "D2", "I1", "I2", "SP1", "SP2", "F1", "F2",
+        "N1", "B1", "P1", "T1", "G1",
+    }
+
+    def _raw(self, path: Path) -> dict:
+        import yaml
+
+        with path.open() as handle:
+            data: dict = yaml.safe_load(handle)
+        return data
+
+    def test_all_full_schema_divisions_are_configured(self, config_path: Path):
+        config = load_config(config_path)
+        assert set(config.data.leagues) == self.EXPECTED_LEAGUES
+
+    def test_national_league_is_excluded(self, config_path: Path):
+        config = load_config(config_path)
+        assert "EC" not in config.data.leagues
+
+    def test_current_season_is_configured(self, config_path: Path):
+        config = load_config(config_path)
+        assert "2627" in config.data.seasons
+
+    def test_space_config_matches_root_config(self, config_path: Path):
+        """A divergence here silently trains and serves different corpora."""
+        space_path = config_path.parent.parent / "hf_space" / "config" / "config.yaml"
+        root = self._raw(config_path)["data"]
+        space = self._raw(space_path)["data"]
+        assert sorted(space["seasons"]) == sorted(root["seasons"])
+        assert space["leagues"] == root["leagues"]

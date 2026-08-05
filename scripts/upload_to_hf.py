@@ -55,6 +55,14 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print what would be uploaded without uploading",
     )
+    parser.add_argument(
+        "--datasets-only",
+        action="store_true",
+        help=(
+            "Publish only the Parquet datasets, leaving model artefacts alone. "
+            "Used when new data arrived but the refit was held back."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -107,23 +115,30 @@ def _build_parquet_datasets(cache_dir: Path, tmp_dir: Path) -> dict[str, Path]:
     return result
 
 
-def main() -> None:
+def main(api: object | None = None) -> None:
     args = _parse_args()
 
     models_dir = Path(args.models_dir)
-    if not models_dir.exists():
-        print(f"ERROR: models directory not found: {models_dir}")
-        sys.exit(1)
+    artefacts: list[Path] = []
 
-    artefacts = list(models_dir.glob("*.joblib")) + list(models_dir.glob("*.json"))
-    if not artefacts:
-        print(f"ERROR: no .joblib or .json artefacts found in {models_dir}")
-        sys.exit(1)
+    # In --datasets-only mode the model deliberately was not rebuilt, so an
+    # absent or empty models directory is the expected state, not an error.
+    if not args.datasets_only:
+        if not models_dir.exists():
+            print(f"ERROR: models directory not found: {models_dir}")
+            sys.exit(1)
 
-    print(f"\nModel artefacts to upload ({len(artefacts)}):")
-    for f in sorted(artefacts):
-        size_kb = f.stat().st_size / 1024
-        print(f"  {f.name:40s} {size_kb:8.1f} KB")
+        artefacts = list(models_dir.glob("*.joblib")) + list(models_dir.glob("*.json"))
+        if not artefacts:
+            print(f"ERROR: no .joblib or .json artefacts found in {models_dir}")
+            sys.exit(1)
+
+        print(f"\nModel artefacts to upload ({len(artefacts)}):")
+        for f in sorted(artefacts):
+            size_kb = f.stat().st_size / 1024
+            print(f"  {f.name:40s} {size_kb:8.1f} KB")
+    else:
+        print("\nDatasets-only run — model artefacts left untouched.")
 
     if not args.repo_id:
         print("\nERROR: --repo-id or HF_REPO_ID env var is required")
@@ -144,9 +159,10 @@ def main() -> None:
             print(f"[dry-run] Would upload {len(parquet_files)} Parquet dataset files to: {args.repo_id}/datasets/")
             return
 
-        from huggingface_hub import HfApi
+        if api is None:
+            from huggingface_hub import HfApi
 
-        api = HfApi(token=args.token)
+            api = HfApi(token=args.token)
 
         api.create_repo(
             repo_id=args.repo_id,
@@ -159,14 +175,15 @@ def main() -> None:
             f"Retrain {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
         )
 
-        print(f"\nUploading model artefacts to {args.repo_id} …")
-        api.upload_folder(
-            folder_path=str(models_dir),
-            repo_id=args.repo_id,
-            repo_type="model",
-            commit_message=commit_message,
-            ignore_patterns=["__pycache__", "*.pyc", ".DS_Store"],
-        )
+        if not args.datasets_only:
+            print(f"\nUploading model artefacts to {args.repo_id} …")
+            api.upload_folder(
+                folder_path=str(models_dir),
+                repo_id=args.repo_id,
+                repo_type="model",
+                commit_message=commit_message,
+                ignore_patterns=["__pycache__", "*.pyc", ".DS_Store"],
+            )
 
         if parquet_files:
             datasets_dir = tmp_path / "datasets"

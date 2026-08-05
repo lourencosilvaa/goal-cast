@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, ClassVar, Optional
 
 import pandas as pd
 
@@ -21,6 +21,16 @@ class FootballDataLoader:
     HF Parquet files are stored as one file per league (all seasons merged)
     under {hf_config.local_dir}/{hf_config.dataset_subfolder}/{league_code}.parquet.
     """
+
+    #: Column naming the competition a row belongs to, used to verify that a
+    #: download really answered with the division that was requested.
+    DIVISION_COLUMN: ClassVar[str] = "Div"
+
+    #: Read encodings, tried in order. Some season files carry a stray cp1252
+    #: byte inside an odds column (1819/SC0 and 1819/I2 both do); a strict
+    #: UTF-8 read aborts on it and drops the whole season. latin-1 decodes
+    #: every byte, so it never fails and is the safe last resort.
+    ENCODINGS: ClassVar[tuple[str, ...]] = ("utf-8", "latin-1")
 
     def __init__(
         self,
@@ -54,6 +64,41 @@ class FootballDataLoader:
             / self.hf_config.dataset_subfolder
             / f"{league}.parquet"
         )
+
+    def _read_csv(self, source: str | Path, **kwargs: Any) -> pd.DataFrame:
+        """Read a football-data CSV, tolerating its occasional cp1252 bytes."""
+        last_error: UnicodeDecodeError | None = None
+        for encoding in self.ENCODINGS:
+            try:
+                frame: pd.DataFrame = pd.read_csv(source, encoding=encoding, **kwargs)
+                return frame
+            except UnicodeDecodeError as exc:
+                last_error = exc
+        assert last_error is not None  # ENCODINGS is never empty
+        raise last_error
+
+    def _is_requested_division(self, df: pd.DataFrame, league: str) -> bool:
+        """Whether a payload really holds the division that was requested.
+
+        football-data.co.uk 301-redirects the file of a season it has not
+        published yet onto a *different* division — ``2627/SP1.csv`` answers
+        with ``2627/SC1.csv``. Without this check those matches are cached
+        under the requested league's name and enter the corpus and the teams
+        registry as, say, Scottish Championship fixtures labelled "La Liga".
+
+        A frame carrying no ``Div`` column cannot be checked, and absent
+        evidence is not evidence of a mismatch, so it is accepted.
+        """
+        if self.DIVISION_COLUMN not in df.columns:
+            return True
+        divisions = {
+            str(value).strip()
+            for value in df[self.DIVISION_COLUMN].dropna().unique()
+            if str(value).strip()
+        }
+        if not divisions:
+            return True
+        return divisions == {league}
 
     def _apply_column_filter(self, df: pd.DataFrame) -> pd.DataFrame:
         available_cols = [c for c in self.config.columns_to_keep if c in df.columns]
@@ -100,7 +145,9 @@ class FootballDataLoader:
         cached = self._cached_path(league, season)
         if self._is_cache_valid(cached):
             try:
-                df = pd.read_csv(cached, encoding="utf-8")
+                df = self._read_csv(cached)
+                if not self._is_requested_division(df, league):
+                    raise ValueError(f"cached {cached.name} holds another division")
                 df = self._apply_column_filter(df)
                 df["League"] = self.config.leagues.get(league, league)
                 df["Season"] = season
@@ -111,7 +158,13 @@ class FootballDataLoader:
         # 3. Download from football-data.co.uk and save to local cache
         url = f"{self.config.base_url}/{season}/{league}.csv"
         try:
-            df = pd.read_csv(url, encoding="utf-8", on_bad_lines="skip")
+            df = self._read_csv(url, on_bad_lines="skip")
+            if not self._is_requested_division(df, league):
+                print(
+                    f"Skipping {league}/{season}: server answered with another "
+                    f"division (season not published yet)"
+                )
+                return pd.DataFrame()
             df.to_csv(cached, index=False)
             df = self._apply_column_filter(df)
             df["League"] = self.config.leagues.get(league, league)

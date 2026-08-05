@@ -71,18 +71,30 @@ jobs:
           fi
           uv run python scripts/train_model.py $FORCE_FLAG
 
-      # ── 5. Upload artefacts to Hugging Face Hub ────────────────────────────
-      - name: Upload model to Hugging Face Hub
-        if: ${{ steps.train.outputs.retrained == 'true' }}
-        run: uv run python scripts/upload_to_hf.py
+      # ── 5. Publish to Hugging Face Hub ─────────────────────────────────────
+      # Two independent signals come out of training: `retrained` means new
+      # model artefacts exist, `data_changed` means new matches arrived. They
+      # disagree whenever a refit is held back below retrain_check.min_new_matches
+      # — and on those weeks the data must still ship, or the Space keeps
+      # serving a stale snapshot. So: datasets on either signal, artefacts only
+      # when there are new ones.
+      - name: Upload to Hugging Face Hub
+        if: ${{ steps.train.outputs.retrained == 'true' || steps.train.outputs.data_changed == 'true' }}
+        run: |
+          ARGS=""
+          if [ "${{ steps.train.outputs.retrained }}" != "true" ]; then
+            ARGS="--datasets-only"
+          fi
+          uv run python scripts/upload_to_hf.py $ARGS
 
-      # ── 5b. Restart the HF Space so it reloads the new dataset snapshot ────
-      # The Space reads its match history once, at boot. Without this restart it
-      # keeps serving the snapshot it started with, so freshly uploaded results
-      # never reach the UI. Failure here is fatal on purpose: silent staleness
-      # is exactly the failure mode this step exists to prevent.
+      # ── 5b. Restart the HF Space so it reloads the new snapshot ────────────
+      # The Space reads its match history and its model once, at boot. Without
+      # this restart it keeps serving what it started with, so freshly uploaded
+      # results never reach the UI. Runs on either signal — new data or a new
+      # model both need a reboot to take effect. Failure here is fatal on
+      # purpose: silent staleness is the failure mode this step prevents.
       - name: Restart HuggingFace Space
-        if: ${{ steps.train.outputs.retrained == 'true' }}
+        if: ${{ steps.train.outputs.retrained == 'true' || steps.train.outputs.data_changed == 'true' }}
         env:
           HF_SPACE_REPO_ID: ${{ secrets.HF_SPACE_REPO_ID }}
         run: uv run python scripts/restart_hf_space.py
@@ -116,9 +128,14 @@ jobs:
           echo "- **Run:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.train.outputs.retrained }}" = "true" ]; then
-            echo "- **Retrained:** yes — uploaded + redeployed" >> $GITHUB_STEP_SUMMARY
+            echo "- **Retrained:** yes — artefacts uploaded + redeployed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "- **Retrained:** no — model already up to date, skipped upload/redeploy" >> $GITHUB_STEP_SUMMARY
+            echo "- **Retrained:** no — below the new-match threshold, model left as is" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ steps.train.outputs.data_changed }}" = "true" ]; then
+            echo "- **New data:** yes — dataset republished + Space restarted" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **New data:** no — nothing to publish" >> $GITHUB_STEP_SUMMARY
           fi
           if [ -f output/models/training_results.json ]; then
             echo "- **Training results:** found ✓" >> $GITHUB_STEP_SUMMARY

@@ -7,6 +7,7 @@ app:
 data:
   base_url: "https://www.football-data.co.uk/mmz4281"
   seasons:
+    - "2627"
     - "2526"
     - "2425"
     - "2324"
@@ -16,13 +17,34 @@ data:
     - "1920"
     - "1819"
     - "1718"
+  # Every football-data.co.uk main division that ships the full stat schema.
+  # EC (National League) is deliberately absent: it carries no shot, foul or
+  # corner columns, so FeatureEngineer.build_match_features would drop all of
+  # its rows while its teams still appeared on team pages.
+  # Second tiers matter beyond volume — a promoted side arrives carrying a real
+  # ELO rating instead of entering at the default.
   leagues:
     E0: "Premier League"
+    E1: "Championship"
+    E2: "League One"
+    E3: "League Two"
+    SC0: "Scottish Premiership"
+    SC1: "Scottish Championship"
+    SC2: "Scottish League One"
+    SC3: "Scottish League Two"
     SP1: "La Liga"
+    SP2: "La Liga 2"
     D1: "Bundesliga"
+    D2: "2. Bundesliga"
     I1: "Serie A"
+    I2: "Serie B"
     F1: "Ligue 1"
+    F2: "Ligue 2"
+    N1: "Eredivisie"
+    B1: "Jupiler Pro League"
     P1: "Liga Portugal"
+    T1: "Super Lig"
+    G1: "Super League Greece"
   columns_to_keep:
     - "Date"
     - "HomeTeam"
@@ -138,11 +160,26 @@ scrapers:
     playwright_fallback_enabled: true
     leagues:
       E0: "england/premier-league"
+      E1: "england/championship"
+      E2: "england/league-one"
+      E3: "england/league-two"
+      SC0: "scotland/premiership"
+      SC1: "scotland/championship"
+      SC2: "scotland/league-one"
+      SC3: "scotland/league-two"
       SP1: "spain/laliga"
+      SP2: "spain/laliga2"
       D1: "germany/bundesliga"
+      D2: "germany/2-bundesliga"
       I1: "italy/serie-a"
+      I2: "italy/serie-b"
       F1: "france/ligue-1"
+      F2: "france/ligue-2"
+      N1: "netherlands/eredivisie"
+      B1: "belgium/jupiler-pro-league"
       P1: "portugal/liga-portugal"
+      T1: "turkey/super-lig"
+      G1: "greece/super-league"
       CL: "europe/champions-league"
       EL: "europe/europa-league"
 
@@ -181,7 +218,14 @@ supabase:
   service_key: ""  # Set via SUPABASE_SERVICE_KEY env var
 
 retrain_check:
+  # false = never refit automatically; scripts/train_model.py --force only.
   enabled: true
+  # Matches that must accumulate since the model's last training date before a
+  # refit is worth its cost. One weekly round across the leagues above is ~190
+  # matches, so 800 refits roughly monthly. Data still refreshes every week
+  # regardless — the dataset upload and Space restart run off `data_changed`,
+  # not off this threshold. 0 restores refit-on-any-new-data.
+  min_new_matches: 800
 
 inference:
   enabled: true
