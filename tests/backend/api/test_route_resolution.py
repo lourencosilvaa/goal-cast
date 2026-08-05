@@ -98,6 +98,27 @@ class TestStatsRoutesAreReachable:
             assert not route.path.startswith("/api/predictions")
 
 
+class TestAdminAliasRoutesAreReachable:
+
+    def test_alias_route_is_registered(self, app):
+        paths = [getattr(route, "path", "") for route in app.routes]
+        assert "/api/admin/team-aliases" in paths
+
+    def test_alias_route_is_not_shadowed_by_the_user_routes(self, app):
+        """``/api/admin/users`` is static, but a future pattern could collide."""
+        route = _first_matching_route(app, "GET", "/api/admin/team-aliases")
+        assert route is not None
+        assert route.path == "/api/admin/team-aliases"
+
+    def test_alias_route_supports_every_review_action(self, app):
+        """FastAPI registers one Route per verb, so the methods are unioned."""
+        methods: set[str] = set()
+        for route in app.routes:
+            if getattr(route, "path", "") == "/api/admin/team-aliases":
+                methods |= set(route.methods or set())
+        assert {"GET", "POST", "DELETE"} <= methods
+
+
 class TestNoRouteIsShadowed:
 
     def test_every_static_route_resolves_to_itself(self, app):

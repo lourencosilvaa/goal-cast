@@ -1,0 +1,26 @@
+# Canonical team-name aliases — validated by code review.
+#
+# One of two human-validation channels for scraped team names. Entries here
+# ship with the image and are reviewed like any other code change; aliases
+# approved by an admin at runtime live in the Supabase `team_aliases` table
+# instead. Both are consulted; neither is guessed.
+#
+# Keys are the *scraped* spelling (FlashScore), values the *canonical*
+# football-data.co.uk spelling used by every model and data set here. Matching
+# ignores case and surrounding whitespace. An alias whose value is not a real
+# team in `teams.registry_path` is rejected at resolution time and flagged by
+# `tests/teams/test_static_alias_repository.py`.
+#
+# Example:
+#
+# aliases:
+#   P1:
+#     "Sporting CP": "Sp Lisbon"
+#     "Sporting Braga": "Sp Braga"
+#   E0:
+#     "Manchester City": "Man City"
+#     "Manchester Utd": "Man United"
+#
+# Left empty on purpose: every mapping must be verified by a human against the
+# registry before it is added.
+aliases: {}

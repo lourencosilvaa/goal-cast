@@ -2,7 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from src.scrapers.fixtures_fetcher import _fetch_flashscore_fixtures, fetch_fixtures
+from src.scrapers.fixtures_fetcher import (
+    _fetch_flashscore_fixtures,
+    _scrape_flashscore_fixtures,
+    fetch_fixtures,
+)
 from src.scrapers.base_scraper import FlashScoreFixture
 
 
@@ -44,6 +48,13 @@ class TestFlashScoreFallbackEdgeCases:
 
     @patch("src.scrapers.fixtures_fetcher._build_flashscore_scraper")
     def test_unknown_league_code_uses_flashscore_league_name(self, mock_build):
+        """League labelling belongs to the raw scrape, before name resolution.
+
+        Asserted against ``_scrape_flashscore_fixtures``: these teams are not
+        in the Bundesliga registry, so the resolution step in
+        ``_fetch_flashscore_fixtures`` would (correctly) drop the fixture and
+        hide the labelling this test is about.
+        """
         mock_scraper = MagicMock()
         fs = FlashScoreFixture(
             match_id="id1", home_team="Arsenal", away_team="Chelsea",
@@ -55,7 +66,7 @@ class TestFlashScoreFallbackEdgeCases:
         mock_scraper.scrape_fixtures.return_value = [fs]
         mock_build.return_value = mock_scraper
 
-        result = _fetch_flashscore_fixtures("28/04/2024", leagues=["D1"])
+        result = _scrape_flashscore_fixtures("28/04/2024", leagues=["D1"])
 
         assert result[0].league == "Bundesliga"
 

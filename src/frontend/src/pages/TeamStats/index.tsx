@@ -63,7 +63,8 @@ export function TeamStatsPage() {
         </p>
       </div>
 
-      <GlassCard className="space-y-5">
+      {/* overflow-visible: the team combobox drops a list past the card edge */}
+      <GlassCard className="space-y-5" overflow="visible">
         <LeagueSelect value={leagueCode} onChange={handleLeagueChange} />
         <TeamCombobox
           label="Equipa"

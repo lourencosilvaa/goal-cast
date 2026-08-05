@@ -10,7 +10,7 @@ Downloads the fixtures CSV once and caches it locally for 1 hour.
 import csv
 import io
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,6 +19,11 @@ import requests
 
 if TYPE_CHECKING:
     from src.scrapers.base_scraper import BaseFixtureScraper
+    from src.teams.resolver import (
+        FixtureNameResolver,
+        TeamAliasRepository,
+        UnresolvedNameSink,
+    )
 
 FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 _CACHE_DIR = Path("datasets/cache")
@@ -274,11 +279,139 @@ def _build_flashscore_scraper() -> "BaseFixtureScraper":
     )
 
 
-def _fetch_flashscore_fixtures(
+def _load_project_config():  # type: ignore[no-untyped-def]
+    """Indirection so the resolver builder can be exercised without YAML."""
+    from config.config_loader import load_config
+
+    return load_config()
+
+
+def _build_alias_repository(config) -> "TeamAliasRepository":  # type: ignore[no-untyped-def]
+    """Reviewed seed first, admin-approved table second; both are consulted.
+
+    Supabase is optional here: when it is unreachable the chain simply falls
+    back to the committed seed rather than failing the run.
+    """
+    from src.teams.resolver import ChainedTeamAliasRepository, StaticTeamAliasRepository
+
+    sources: list[TeamAliasRepository] = [
+        StaticTeamAliasRepository(config.teams.aliases.seed_path)
+    ]
+    try:
+        from src.backend.core.supabase_client import get_supabase_client
+        from src.backend.repositories.team_alias_repository import (
+            SupabaseTeamAliasRepository,
+        )
+        from src.backend.services.team_alias_service import TeamAliasService
+
+        sources.append(
+            SupabaseTeamAliasRepository(
+                TeamAliasService(supabase=get_supabase_client())
+            )
+        )
+    except Exception as exc:
+        print(f"[Name resolution] Supabase aliases unavailable: {exc}")
+    return ChainedTeamAliasRepository(sources)
+
+
+def _build_unresolved_sink() -> "UnresolvedNameSink | None":  # type: ignore[no-untyped-def]
+    """Review queue for names a human must decide on; optional."""
+    try:
+        from src.backend.core.supabase_client import get_supabase_client
+        from src.backend.repositories.team_alias_repository import (
+            SupabaseUnresolvedNameSink,
+        )
+        from src.backend.services.team_alias_service import TeamAliasService
+
+        return SupabaseUnresolvedNameSink(
+            TeamAliasService(supabase=get_supabase_client())
+        )
+    except Exception:
+        return None
+
+
+def _build_fixture_name_resolver() -> "FixtureNameResolver | None":  # type: ignore[no-untyped-def]
+    """Assemble the resolver, or ``None`` when names cannot be verified.
+
+    Returning ``None`` deliberately drops every scraped fixture: without the
+    registry there is no way to tell a real team from a misspelling, and a
+    prediction about an unidentified team is worse than no prediction.
+    """
+    from src.teams.registry import load_team_registry
+    from src.teams.resolver import FixtureNameResolver, TeamNameResolver
+
+    try:
+        config = _load_project_config()
+    except Exception as exc:
+        print(f"[Name resolution] Configuration unavailable: {exc}")
+        return None
+
+    registry = load_team_registry(config.teams.registry_path)
+    if not registry:
+        print(
+            "[Name resolution] Team registry is empty "
+            f"({config.teams.registry_path}); scraped fixtures cannot be verified."
+        )
+        return None
+
+    return FixtureNameResolver(
+        TeamNameResolver(
+            canonical_teams=registry,
+            alias_repository=_build_alias_repository(config),
+            config=config.teams.aliases,
+        ),
+        sink=_build_unresolved_sink(),
+    )
+
+
+def resolve_fixture_names(
+    fixtures: list[Fixture],
+    resolver: "FixtureNameResolver | None",
+) -> list[Fixture]:
+    """Return only the fixtures whose teams both resolve to canonical names.
+
+    Unresolved names are queued for admin review by the resolver's sink. This
+    is the fail-closed step: a fixture naming a team the data set does not
+    recognise is dropped rather than predicted from league averages.
+    """
+    if resolver is None:
+        if fixtures:
+            print(
+                f"[Name resolution] No resolver available; dropping "
+                f"{len(fixtures)} unverified fixture(s)."
+            )
+        return []
+
+    resolved: list[Fixture] = []
+    for fixture in fixtures:
+        outcome = resolver.resolve_pair(
+            league_code=fixture.division,
+            home_name=fixture.home_team,
+            away_name=fixture.away_team,
+        )
+        if not outcome.resolved:
+            names = ", ".join(f"'{r.raw_name}'" for r in outcome.unresolved)
+            print(
+                f"[Name resolution] Skipping {fixture.home_team} vs "
+                f"{fixture.away_team} ({fixture.division}): unrecognised {names} "
+                "— queued for admin review."
+            )
+            continue
+        resolved.append(
+            replace(
+                fixture,
+                home_team=outcome.home_team or fixture.home_team,
+                away_team=outcome.away_team or fixture.away_team,
+            )
+        )
+    return resolved
+
+
+def _scrape_flashscore_fixtures(
     target_date: str,
     leagues: list[str] | None = None,
 ) -> list[Fixture]:
-    """Fetch fixtures from FlashScore as a tertiary fallback source."""
+    """Fetch raw FlashScore fixtures, in that site's own team spellings."""
     try:
         from src.scrapers.flashscore.exceptions import FlashScoreUnavailableError
 
@@ -322,6 +455,22 @@ def _fetch_flashscore_fixtures(
     except Exception as e:
         print(f"[FlashScore fallback] Error: {e}")
         return []
+
+
+def _fetch_flashscore_fixtures(
+    target_date: str,
+    leagues: list[str] | None = None,
+) -> list[Fixture]:
+    """FlashScore fixtures, with their team names resolved to canonical ones.
+
+    FlashScore spells teams its own way ("Sporting CP" for "Sp Lisbon"), so
+    everything it returns is verified against the registry before it can reach
+    the model. See :mod:`src.teams.resolver`.
+    """
+    scraped = _scrape_flashscore_fixtures(target_date, leagues)
+    if not scraped:
+        return []
+    return resolve_fixture_names(scraped, _build_fixture_name_resolver())
 
 
 def fetch_fixtures_for_matches(

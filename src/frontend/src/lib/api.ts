@@ -295,6 +295,8 @@ export interface GoalMarkets {
   };
   btts: { yes: number; no: number };
   top_scorelines: { score: string; prob: number }[];
+  /** 'model' = calibrated Dixon-Coles; 'historical' = rates-based estimate. */
+  source: string;
 }
 
 export interface MatchStats {
@@ -408,6 +410,69 @@ export async function adminCreateUser(email: string, password: string): Promise<
     throw new Error(err.detail || 'Failed to create user');
   }
   return res.json();
+}
+
+// ── Admin: canonical team-name aliases ────────────────────────────────────────
+
+export interface PendingTeamAlias {
+  league_code: string;
+  raw_name: string;
+  /** Advisory candidates — an admin picks one, nothing is auto-applied. */
+  suggestions: string[];
+}
+
+export interface ApprovedTeamAlias {
+  league_code: string;
+  raw_name: string;
+  canonical_name: string;
+}
+
+export interface TeamAliasList {
+  approved: ApprovedTeamAlias[];
+  pending: PendingTeamAlias[];
+  /** Canonical names per league, so the picker only offers real teams. */
+  teams: Record<string, string[]>;
+}
+
+export async function adminListTeamAliases(): Promise<TeamAliasList> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/admin/team-aliases`, { headers });
+  if (!res.ok) throw new Error('Falha ao carregar nomes de equipas');
+  return res.json() as Promise<TeamAliasList>;
+}
+
+export async function adminApproveTeamAlias(
+  leagueCode: string,
+  rawName: string,
+  canonicalName: string,
+): Promise<void> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/admin/team-aliases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({
+      league_code: leagueCode,
+      raw_name: rawName,
+      canonical_name: canonicalName,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Falha ao aprovar' }));
+    throw new Error(err.detail || 'Falha ao aprovar');
+  }
+}
+
+export async function adminRevokeTeamAlias(
+  leagueCode: string,
+  rawName: string,
+): Promise<void> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/admin/team-aliases`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify({ league_code: leagueCode, raw_name: rawName }),
+  });
+  if (!res.ok) throw new Error('Falha ao remover');
 }
 
 export async function adminSetApproved(userId: string, approved: boolean): Promise<void> {

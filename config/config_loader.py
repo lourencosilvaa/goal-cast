@@ -196,6 +196,27 @@ class InsightsConfig(BaseModel):
     max_scorelines: int = 5
 
 
+class TeamAliasConfig(BaseModel):
+    """Canonical-name resolution for scraped team names.
+
+    ``seed_path`` points at the versioned alias file whose entries are
+    human-validated by code review; admin-approved aliases live in Supabase.
+    The suggestion settings only drive *advisory* proposals shown to an admin —
+    a close match is never applied automatically.
+    """
+
+    seed_path: str = "config/team_aliases.yaml"
+    #: How many candidate canonical names to propose for an unresolved name.
+    #: This — not the cutoff — is what keeps the admin's list short.
+    suggestion_count: int = 5
+    #: Minimum difflib similarity (0..1) for a candidate to be proposed.
+    #: Deliberately below difflib's 0.6 default: measured against real pairs,
+    #: the abbreviations this feature exists for score 0.40-0.53
+    #: ("Sporting CP"->"Sp Lisbon" 0.40, "Wolverhampton"->"Wolves" 0.53), so
+    #: 0.6 would hide the very candidates an admin needs to see.
+    suggestion_cutoff: float = 0.4
+
+
 class TeamsConfig(BaseModel):
     """Static team-name registry used as the offline fallback for /teams.
 
@@ -204,6 +225,7 @@ class TeamsConfig(BaseModel):
     """
 
     registry_path: str = "src/backend/data/teams_registry.json"
+    aliases: TeamAliasConfig = TeamAliasConfig()
 
 
 class HuggingFaceConfig(BaseModel):

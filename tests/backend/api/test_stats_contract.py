@@ -99,16 +99,26 @@ class TestResponseModelsAcceptCalculatorOutput:
         assert response.team == "Sporting"
         assert response.overall.played == 3
 
-    def test_match_payload_validates_without_markets(self):
+    def test_match_payload_validates_with_historical_markets(self):
+        """No fitted model — the rates-based fallback must still validate."""
         response = MatchStatsResponse(**match_payload())
-        assert response.goal_markets is None
+        assert response.goal_markets is not None
+        assert response.goal_markets.source == "historical"
         assert response.head_to_head.played == 2
 
     def test_match_payload_validates_with_markets(self):
         response = MatchStatsResponse(**match_payload(StubMarketModel()))
         assert response.goal_markets is not None
+        assert response.goal_markets.source == "model"
         assert response.goal_markets.expected_goals.total == pytest.approx(2.9)
         assert response.goal_markets.top_scorelines[0].score == "2-1"
+
+    def test_market_payload_keys_survive_translation(self):
+        payload = match_payload(StubMarketModel())["goal_markets"]
+        response = MatchStatsResponse(
+            **match_payload(StubMarketModel())
+        ).goal_markets.model_dump()
+        assert set(payload) == set(response)
 
     def test_no_field_is_dropped_in_translation(self):
         """Extra keys upstream are fine; missing ones are not."""

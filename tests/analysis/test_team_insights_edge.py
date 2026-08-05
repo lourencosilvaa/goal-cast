@@ -279,15 +279,16 @@ class TestGoalMarketEdges:
         insights = calculator(minimal_rows(), market_model=model).match_insights(
             self._fixture()
         )
-        assert insights.goal_markets is None
         assert model.calls == []
+        assert insights.goal_markets.source == GoalMarkets.SOURCE_HISTORICAL
 
-    def test_model_returning_nothing_degrades_to_no_markets(self):
+    def test_model_returning_nothing_degrades_to_historical_markets(self):
         model = RecordingModel(known=True, prediction=None)
         insights = calculator(minimal_rows(), market_model=model).match_insights(
             self._fixture()
         )
-        assert insights.goal_markets is None
+        assert insights.goal_markets is not None
+        assert insights.goal_markets.source == GoalMarkets.SOURCE_HISTORICAL
 
     def test_empty_scoreline_list_is_serialised_as_empty(self):
         markets = GoalMarkets.from_prediction(StubPrediction(), max_scorelines=5)
