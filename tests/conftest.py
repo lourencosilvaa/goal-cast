@@ -1,6 +1,19 @@
 import pytest
 from pathlib import Path
 
+#: Env vars that change authentication behaviour. Importing anything that pulls
+#: in ``src.backend.main`` runs ``load_dotenv()``, which leaks the developer's
+#: local ``.env`` into the session and would silently switch auth tests to the
+#: dev bypass depending on test order. Auth is therefore always off by default;
+#: tests that need the bypass opt in explicitly with monkeypatch.
+_AUTH_ENV_VARS = ("DEV_AUTH_BYPASS", "DEV_USER_ID", "DEV_USER_EMAIL")
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_auth_env(monkeypatch):
+    for name in _AUTH_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
 
 @pytest.fixture
 def config_path() -> Path:

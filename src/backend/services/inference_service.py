@@ -1,12 +1,17 @@
 """On-demand prediction service: delegates inference to the HF Space API."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
 
 class InferenceService:
     """Async HTTP client that calls the HuggingFace Space inference endpoint."""
+
+    #: Seconds allowed for a model call (cold Spaces load the model on demand)
+    #: and for the cheap read-only lookups served from memory.
+    PREDICTION_TIMEOUT: ClassVar[int] = 120
+    LOOKUP_TIMEOUT: ClassVar[int] = 30
 
     def __init__(self, config: Any) -> None:
         self.config = config
@@ -27,7 +32,7 @@ class InferenceService:
         if not self.config.inference.enabled:
             raise RuntimeError("On-demand inference is disabled in configuration")
 
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=self.PREDICTION_TIMEOUT) as client:
             response = await client.post(
                 f"{self._space_url()}/infer",
                 json={"date": target_date, "league_codes": league_codes},
@@ -45,7 +50,7 @@ class InferenceService:
         if not self.config.inference.enabled:
             raise RuntimeError("On-demand inference is disabled in configuration")
 
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=self.PREDICTION_TIMEOUT) as client:
             response = await client.post(
                 f"{self._space_url()}/predict-custom",
                 json={
@@ -62,8 +67,45 @@ class InferenceService:
         if not self.config.inference.enabled:
             raise RuntimeError("On-demand inference is disabled in configuration")
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=self.LOOKUP_TIMEOUT) as client:
             response = await client.get(f"{self._space_url()}/teams")
         response.raise_for_status()
         result: dict[str, list[str]] = response.json()
+        return result
+
+    async def get_match_insights(
+        self,
+        home_team: str,
+        away_team: str,
+        league_code: str,
+    ) -> dict[str, Any]:
+        """Head-to-head history and both team profiles for a face-off."""
+        if not self.config.inference.enabled:
+            raise RuntimeError("On-demand inference is disabled in configuration")
+
+        async with httpx.AsyncClient(timeout=self.LOOKUP_TIMEOUT) as client:
+            response = await client.post(
+                f"{self._space_url()}/match-insights",
+                json={
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "league_code": league_code,
+                },
+            )
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    async def get_team_insights(self, team: str, league_code: str) -> dict[str, Any]:
+        """Full statistical profile of a single team."""
+        if not self.config.inference.enabled:
+            raise RuntimeError("On-demand inference is disabled in configuration")
+
+        async with httpx.AsyncClient(timeout=self.LOOKUP_TIMEOUT) as client:
+            response = await client.get(
+                f"{self._space_url()}/team-insights",
+                params={"team": team, "league_code": league_code},
+            )
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
         return result

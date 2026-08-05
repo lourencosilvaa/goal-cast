@@ -56,6 +56,16 @@ features:
     default_rest_days: 14
     fatigue_threshold: 3
 
+insights:
+  # Horizons behind the team / head-to-head statistics served to the UI.
+  # `recent_matches` drives form, rates (BTTS, clean sheets, over 2.5) and the
+  # per-match averages; the all-time W/D/L records always span every loaded
+  # season (see data.seasons).
+  recent_matches: 10
+  h2h_matches: 10
+  form_sequence_length: 5
+  max_scorelines: 5
+
 huggingface:
   repo_id: ""  # Set via HF_REPO_ID env var
   hf_token: ""  # Set via HF_TOKEN env var

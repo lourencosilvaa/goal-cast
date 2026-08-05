@@ -6,12 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from src.backend.core.auth import get_current_user
-from src.backend.repositories.team_repository import (
-    FallbackTeamRepository,
-    RemoteTeamRepository,
-    StaticTeamRepository,
-    TeamRepository,
-)
 from src.backend.services.inference_service import InferenceService
 
 router = APIRouter(prefix="/api/predictions", tags=["inference"])
@@ -20,17 +14,6 @@ router = APIRouter(prefix="/api/predictions", tags=["inference"])
 def get_inference_service(request: Request) -> InferenceService:
     config = request.app.state.config
     return InferenceService(config)
-
-
-def get_team_repository(request: Request) -> TeamRepository:
-    """Space first (freshest), shipped registry second (always available)."""
-    config = request.app.state.config
-    return FallbackTeamRepository(
-        [
-            RemoteTeamRepository(get_inference_service(request)),
-            StaticTeamRepository(config.teams.registry_path),
-        ]
-    )
 
 
 class InferenceResponse(BaseModel):
@@ -96,12 +79,3 @@ async def predict_custom(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         )
     return CustomPredictResponse(**result)
-
-
-@router.get("/teams")
-async def get_teams(
-    user_id: Annotated[str, Depends(get_current_user)],
-    team_repo: Annotated[TeamRepository, Depends(get_team_repository)],
-) -> dict[str, list[str]]:
-    """Return available team names grouped by league code."""
-    return await team_repo.get_teams()
