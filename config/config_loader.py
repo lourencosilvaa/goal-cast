@@ -234,6 +234,11 @@ class HuggingFaceConfig(BaseModel):
     local_dir: str = "/tmp/hf_models"
     model_filename: str = "ensemble_model.joblib"
     dataset_subfolder: str = "datasets"
+    #: Space repo (``owner/name``) restarted after a retrain upload. The Space
+    #: reads its match history once at boot, so a new dataset snapshot only
+    #: reaches users once it reboots. Distinct from ``repo_id``, which is the
+    #: model repo holding the artefacts and the Parquet datasets.
+    space_repo_id: str = ""
 
 
 class SpaceConfig(BaseModel):
@@ -310,6 +315,8 @@ def load_config(path: str | Path = "config/config.yaml") -> Config:
         hf["hf_token"] = hf_token
     if local_dir := os.environ.get("HF_LOCAL_DIR"):
         hf["local_dir"] = local_dir
+    if space_repo_id := os.environ.get("HF_SPACE_REPO_ID"):
+        hf["space_repo_id"] = space_repo_id
 
     inference = data.setdefault("inference", {})
     if space_url := os.environ.get("HF_SPACE_URL"):
