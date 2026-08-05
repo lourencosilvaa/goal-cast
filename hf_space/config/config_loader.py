@@ -44,10 +44,28 @@ class HuggingFaceConfig(BaseModel):
     dataset_subfolder: str = "datasets"
 
 
+class InsightsConfig(BaseModel):
+    """Windows and limits behind the team / head-to-head statistics.
+
+    Mirrors ``config.config_loader.InsightsConfig`` in the main project, which
+    is where the defaults are documented.
+    """
+
+    #: Matches counted as "recent" for form, rates and per-match averages.
+    recent_matches: int = 10
+    #: Past meetings surfaced in the head-to-head list (counts use all of them).
+    h2h_matches: int = 10
+    #: Length of the W/D/L streak shown in the UI.
+    form_sequence_length: int = 5
+    #: Most likely scorelines kept in the goal-market block.
+    max_scorelines: int = 5
+
+
 class SpaceConfig(BaseModel):
     data: DataConfig
     features: FeaturesConfig
     huggingface: HuggingFaceConfig = HuggingFaceConfig()
+    insights: InsightsConfig = InsightsConfig()
 
 
 def load_config(path: str | Path = "config/config.yaml") -> SpaceConfig:

@@ -204,9 +204,140 @@ export async function predictCustom(
 
 export async function fetchTeams(): Promise<Record<string, string[]>> {
   const headers = await authHeaders();
-  const res = await fetch(`${BASE}/api/predictions/teams`, { headers });
+  const res = await fetch(`${BASE}/api/teams`, { headers });
   if (!res.ok) throw new Error('Failed to fetch teams');
   return res.json() as Promise<Record<string, string[]>>;
+}
+
+// ── Statistics ────────────────────────────────────────────────────────────────
+
+/** Win/draw/loss counters plus the ratios derived from them. */
+export interface TeamRecord {
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  goals_for: number;
+  goals_against: number;
+  points: number;
+  points_per_game: number;
+  win_pct: number;
+  draw_pct: number;
+  loss_pct: number;
+  avg_goals_for: number;
+  avg_goals_against: number;
+  goal_difference: number;
+}
+
+/** One past match; `result`/`venue` are relative to the queried team. */
+export interface MatchRecord {
+  date: string;
+  home_team: string;
+  away_team: string;
+  home_goals: number;
+  away_goals: number;
+  result: string | null;
+  venue: string | null;
+}
+
+export interface TeamRates {
+  clean_sheets: number;
+  failed_to_score: number;
+  btts: number;
+  over_2_5: number;
+}
+
+export interface TeamAverages {
+  shots: number;
+  shots_on_target: number;
+  corners: number;
+  cards: number;
+}
+
+export interface TeamStats {
+  team: string;
+  league: string;
+  league_code: string;
+  overall: TeamRecord;
+  home: TeamRecord;
+  away: TeamRecord;
+  recent: TeamRecord;
+  form_sequence: string[];
+  rates: TeamRates;
+  averages: TeamAverages;
+  recent_matches: MatchRecord[];
+}
+
+export interface HeadToHead {
+  home_team: string;
+  away_team: string;
+  played: number;
+  home_wins: number;
+  draws: number;
+  away_wins: number;
+  home_goals: number;
+  away_goals: number;
+  avg_goals_home: number;
+  avg_goals_away: number;
+  avg_goals_total: number;
+  btts_pct: number;
+  over_2_5_pct: number;
+  matches: MatchRecord[];
+}
+
+export interface GoalMarkets {
+  expected_goals: { home: number; away: number; total: number };
+  over_under: {
+    over_1_5: number;
+    over_2_5: number;
+    over_3_5: number;
+    under_2_5: number;
+  };
+  btts: { yes: number; no: number };
+  top_scorelines: { score: string; prob: number }[];
+}
+
+export interface MatchStats {
+  home_team: string;
+  away_team: string;
+  league: string;
+  league_code: string;
+  head_to_head: HeadToHead;
+  home: TeamStats;
+  away: TeamStats;
+  goal_markets: GoalMarkets | null;
+}
+
+export async function fetchMatchStats(
+  homeTeam: string,
+  awayTeam: string,
+  leagueCode: string,
+): Promise<MatchStats> {
+  const headers = await authHeaders();
+  const res = await fetch(`${BASE}/api/stats/match`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ home_team: homeTeam, away_team: awayTeam, league_code: leagueCode }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Estatísticas indisponíveis' }));
+    throw new Error(err.detail || 'Estatísticas indisponíveis');
+  }
+  return res.json() as Promise<MatchStats>;
+}
+
+export async function fetchTeamStats(
+  team: string,
+  leagueCode: string,
+): Promise<TeamStats> {
+  const headers = await authHeaders();
+  const params = new URLSearchParams({ team, league_code: leagueCode });
+  const res = await fetch(`${BASE}/api/stats/team?${params}`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Estatísticas indisponíveis' }));
+    throw new Error(err.detail || 'Estatísticas indisponíveis');
+  }
+  return res.json() as Promise<TeamStats>;
 }
 
 // ── Retrain status ────────────────────────────────────────────────────────────

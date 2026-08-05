@@ -11,6 +11,7 @@ import { SettingsPage } from '@/pages/Settings';
 import { LoginPage } from '@/pages/Login';
 import { AdminPage } from '@/pages/Admin';
 import { CustomPredictPage } from '@/pages/CustomPredict';
+import { TeamStatsPage } from '@/pages/TeamStats';
 import { MatchDetailPage } from '@/pages/MatchDetailPage';
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
           <Route path="match/:matchId" element={<MatchDetailPage />} />
           <Route path="value-bets" element={<ValueBetsPage />} />
           <Route path="custom-predict" element={<CustomPredictPage />} />
+          <Route path="team-stats" element={<TeamStatsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route
             path="admin"

@@ -2,6 +2,11 @@
 
 Loads the trained model once at startup, then serves on-demand predictions.
 Accepts POST /infer with {date, league_codes} and returns predictions.
+
+It also serves the statistics endpoints (/match-insights, /team-insights):
+the Space is the only deployed component holding the full match history in
+memory, so empirical team and head-to-head numbers are computed here and
+proxied by the backend.
 """
 
 import csv
@@ -15,10 +20,15 @@ from typing import Any
 
 import pandas as pd
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from config.config_loader import SpaceConfig, load_config
+from src.analysis.team_insights import (
+    FixtureQuery,
+    TeamInsightsCalculator,
+    TeamQuery,
+)
 from src.models.data_cleaner import DataCleaner
 from src.models.data_loader import FootballDataLoader
 from src.models.elo import FootballELO
@@ -29,6 +39,7 @@ _PREDICTOR: MatchPredictor | None = None
 _CONFIG: SpaceConfig | None = None
 _ENRICHED_DATA: pd.DataFrame | None = None
 _TEAMS_BY_LEAGUE: dict[str, list[str]] = {}
+_INSIGHTS: TeamInsightsCalculator | None = None
 
 _FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 _FIXTURES_CACHE = Path("/tmp/fixtures.csv")
@@ -46,7 +57,7 @@ DIVISION_MAP = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _PREDICTOR, _CONFIG, _ENRICHED_DATA, _TEAMS_BY_LEAGUE
+    global _PREDICTOR, _CONFIG, _ENRICHED_DATA, _TEAMS_BY_LEAGUE, _INSIGHTS
     _CONFIG = load_config()
     model_dir = _download_model(_CONFIG)
     _PREDICTOR = MatchPredictor(model_dir)
@@ -54,6 +65,9 @@ async def lifespan(app: FastAPI):
     historical_df = _load_historical_data(_CONFIG)
     # Extract teams per league from raw data before enrichment
     _TEAMS_BY_LEAGUE = _extract_teams_by_league(historical_df)
+    # The insight calculator reads raw results (goals, dates, shots), so it is
+    # built from the cleaned frame before feature engineering rewrites it.
+    _INSIGHTS = _build_insights(historical_df, _CONFIG, _PREDICTOR)
     _ENRICHED_DATA = _engineer_features(historical_df, _CONFIG)
     yield
 
@@ -98,6 +112,12 @@ class CustomPredictResponse(BaseModel):
     confidence: float
     probabilities: dict[str, float]
     league: str
+
+
+class MatchInsightsRequest(BaseModel):
+    home_team: str
+    away_team: str
+    league_code: str
 
 
 @app.get("/health")
@@ -176,6 +196,60 @@ def predict_custom(req: CustomPredictRequest) -> CustomPredictResponse:
         confidence=float(d.get("confidence", 0.0)),
         probabilities=d.get("probabilities", {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}),
         league=league_name,
+    )
+
+
+@app.post("/match-insights")
+def match_insights(req: MatchInsightsRequest) -> dict[str, Any]:
+    """Head-to-head history plus both team profiles for a face-off."""
+    calculator = _require_insights()
+    query = FixtureQuery(
+        league_code=req.league_code,
+        home_team=req.home_team,
+        away_team=req.away_team,
+    )
+    for team in (req.home_team, req.away_team):
+        _require_known_team(calculator, req.league_code, team)
+    return calculator.match_insights(query).to_dict()
+
+
+@app.get("/team-insights")
+def team_insights(
+    team: str = Query(...), league_code: str = Query(...)
+) -> dict[str, Any]:
+    """Full statistical profile of a single team."""
+    calculator = _require_insights()
+    _require_known_team(calculator, league_code, team)
+    return calculator.team_insights(
+        TeamQuery(league_code=league_code, team=team)
+    ).to_dict()
+
+
+def _require_insights() -> TeamInsightsCalculator:
+    if _INSIGHTS is None:
+        raise HTTPException(status_code=503, detail="Historical data not loaded")
+    return _INSIGHTS
+
+
+def _require_known_team(
+    calculator: TeamInsightsCalculator, league_code: str, team: str
+) -> None:
+    if not calculator.knows_team(TeamQuery(league_code=league_code, team=team)):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No history for '{team}' in league '{league_code}'",
+        )
+
+
+def _build_insights(
+    df: pd.DataFrame, config: SpaceConfig, predictor: MatchPredictor | None
+) -> TeamInsightsCalculator:
+    """Wire the calculator to the raw history and the fitted score model."""
+    return TeamInsightsCalculator(
+        matches=df,
+        config=config.insights,
+        leagues=config.data.leagues,
+        market_model=predictor.poisson if predictor is not None else None,
     )
 
 

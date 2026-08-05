@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, Settings, Radio, TrendingUp, ShieldCheck, LogOut, Wand2 } from 'lucide-react';
+import { BarChart3, Settings, Radio, TrendingUp, ShieldCheck, LogOut, Wand2, Shield } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: BarChart3 },
   { to: '/value-bets', label: 'Value Bets', icon: TrendingUp },
   { to: '/custom-predict', label: 'Prever Jogo', icon: Wand2 },
+  { to: '/team-stats', label: 'Equipas', icon: Shield },
   { to: '/settings', label: 'Definições', icon: Settings },
 ];
 

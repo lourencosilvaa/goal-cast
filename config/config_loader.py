@@ -178,6 +178,24 @@ class EvaluationConfig(BaseModel):
     storage_dir: str = "output/evaluation"
 
 
+class InsightsConfig(BaseModel):
+    """Windows and limits behind the team / head-to-head statistics.
+
+    Every horizon the insight calculator uses is declared here rather than
+    baked into the code, so the depth of "recent form" can be retuned from
+    YAML without touching a module.
+    """
+
+    #: Matches counted as "recent" for form, rates and per-match averages.
+    recent_matches: int = 10
+    #: Past meetings surfaced in the head-to-head list (counts use all of them).
+    h2h_matches: int = 10
+    #: Length of the W/D/L streak shown in the UI.
+    form_sequence_length: int = 5
+    #: Most likely scorelines kept in the goal-market block.
+    max_scorelines: int = 5
+
+
 class TeamsConfig(BaseModel):
     """Static team-name registry used as the offline fallback for /teams.
 
@@ -244,6 +262,7 @@ class Config(BaseModel):
     retrain_check: RetrainCheckConfig = RetrainCheckConfig()
     evaluation: EvaluationConfig = EvaluationConfig()
     teams: TeamsConfig = TeamsConfig()
+    insights: InsightsConfig = InsightsConfig()
     huggingface: HuggingFaceConfig = HuggingFaceConfig()
     inference: InferenceConfig = InferenceConfig()
     international: InternationalConfig = InternationalConfig(

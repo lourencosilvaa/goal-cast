@@ -30,7 +30,9 @@ from src.backend.api import (
     leagues,
     predictions,
     profile,
+    stats,
     status,
+    teams,
 )
 
 
@@ -71,6 +73,8 @@ app.include_router(keys.router)
 app.include_router(admin.router)
 app.include_router(profile.router)
 app.include_router(status.router)
+app.include_router(teams.router)
+app.include_router(stats.router)
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 if _static_dir.exists():
