@@ -52,16 +52,29 @@ A full-stack web application that combines a **ML ensemble model** with **AI-pow
 
 ### Data Ingestion
 
-Historical match data covers **8 seasons** across **6 leagues**, sourced from [football-data.co.uk](https://www.football-data.co.uk/) and stored on **Hugging Face** as per-league Parquet files (no local disk required on Render):
+Historical match data covers **10 seasons** (2017/18 → 2026/27) across **21 divisions**, ~64,000 matches, sourced from [football-data.co.uk](https://www.football-data.co.uk/) and stored on **Hugging Face** as per-league Parquet files (no local disk required on Render):
 
-| League | Code | Seasons |
-|--------|------|---------|
-| Premier League | `E0` | 2018/19 → 2025/26 |
-| La Liga | `SP1` | 2018/19 → 2025/26 |
-| Bundesliga | `D1` | 2018/19 → 2025/26 |
-| Serie A | `I1` | 2018/19 → 2025/26 |
-| Ligue 1 | `F1` | 2018/19 → 2025/26 |
-| Liga Portugal | `P1` | 2018/19 → 2025/26 |
+| Country | Codes | Divisions |
+|---------|-------|-----------|
+| England | `E0` `E1` `E2` `E3` | Premier League, Championship, League One, League Two |
+| Scotland | `SC0` `SC1` `SC2` `SC3` | Premiership, Championship, League One, League Two |
+| Spain | `SP1` `SP2` | La Liga, La Liga 2 |
+| Germany | `D1` `D2` | Bundesliga, 2. Bundesliga |
+| Italy | `I1` `I2` | Serie A, Serie B |
+| France | `F1` `F2` | Ligue 1, Ligue 2 |
+| Netherlands | `N1` | Eredivisie |
+| Belgium | `B1` | Jupiler Pro League |
+| Portugal | `P1` | Liga Portugal |
+| Turkey | `T1` | Super Lig |
+| Greece | `G1` | Super League Greece |
+
+`EC` (National League) is deliberately excluded: it ships no shot, foul or corner columns, so `FeatureEngineer.build_match_features` would drop every one of its rows while its teams still appeared on team pages.
+
+Second tiers earn their place beyond raw volume — a promoted side arrives carrying a real ELO rating instead of entering at the 1500 default. Measured on an identical 2,040-fixture holdout, expanding from 6 to 21 divisions changed prediction quality in the original six by **−0.0020 log-loss, 95% CI [−0.0062, +0.0023]** — no detectable effect either way.
+
+**Two data-integrity guards** live in `FootballDataLoader`, both learned the hard way:
+- *Division verification.* football-data.co.uk 301-redirects a not-yet-published season's file onto a different division (`2627/SP1.csv` → `2627/SC1.csv`). Payloads are checked against the `Div` column before being cached, or Scottish Championship matches end up labelled "La Liga".
+- *Tolerant decoding.* Some season files carry a stray cp1252 byte in an odds column (1819/SC0 and 1819/I2 both do). A strict UTF-8 read aborts and silently drops the whole season, so reads fall back to latin-1.
 
 **Data source priority:** HuggingFace Parquet → local CSV cache (24 h TTL) → football-data.co.uk download. On Render (ephemeral filesystem), all data comes from HuggingFace. The weekly GitHub Action refreshes data from the web and re-uploads to HF.
 
@@ -120,7 +133,7 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 ## Application Features
 
 ### Dashboard
-- Daily match predictions for all 6 leagues
+- Daily match predictions for all 21 divisions
 - Confidence levels and blended probabilities
 - AI analysis per match (Google Gemini)
 - **On-demand inference** ("Calcular ao vivo") — calls the HF Space directly for live predictions
@@ -452,15 +465,28 @@ Add these in **GitHub → Settings → Secrets and variables → Actions**:
 Runs **every Monday at 06:00 UTC** (or manually via *Run workflow*, with an optional `force` toggle):
 1. Sets the retraining banner flag → users see the amber banner
 2. Downloads fresh data from football-data.co.uk
-3. Retrains the model (ensemble + calibration + Dixon-Coles) across all 8 seasons — **only if there is new data** (`ModelCacheManager.should_retrain` compares the latest match date to the model's `last_match_date`; `--force`/the `force` toggle overrides)
-4. Uploads model artefacts + updated Parquet datasets to Hugging Face — **skipped when no retraining happened**
-5. Restarts the Hugging Face Space (`scripts/restart_hf_space.py`) — **also skipped when no retraining happened**
-6. Triggers the Render redeploy — **also skipped when no retraining happened**
+3. Retrains the model (ensemble + calibration + Dixon-Coles) across all seasons — **only when enough new data has accumulated** (see the two signals below; `--force`/the `force` toggle overrides)
+4. Uploads Parquet datasets, plus model artefacts when there are new ones
+5. Restarts the Hugging Face Space (`scripts/restart_hf_space.py`)
+6. Triggers the Render redeploy — **only when the model was refit**
 7. Clears the retraining banner flag (always)
 
 > **Why step 5 exists:** the Space builds its match history once, in `lifespan`, from the Parquet snapshot on the Hub. A running Space therefore keeps answering `/team-insights` from the frame it booted with, so uploading newer results changes nothing until it reboots — team pages silently freeze at the last restart. The step fails the job on error rather than warning, because silent staleness is the failure mode it exists to prevent.
 
-> The schedule is time-based, not data-triggered. The "only when there's new data" behaviour is enforced inside `train_model.py`, which exposes a `retrained` step output so steps 4–5 are gated on it — a no-new-data week no longer redeploys needlessly.
+#### Two independent signals
+
+`train_model.py` emits two GitHub Actions step outputs, and conflating them is what once froze the deployment for three months:
+
+| Signal | Means | Gates |
+|--------|-------|-------|
+| `data_changed` | The loaded data holds matches the model has not seen | Dataset upload (`--datasets-only`) + Space restart |
+| `retrained` | The model was actually refit | Artefact upload + Render redeploy |
+
+They disagree whenever a refit is held back, and on those weeks the **data still ships** — otherwise the Space keeps serving a stale snapshot while the workflow reports success.
+
+The refit itself is governed by `retrain_check.min_new_matches` (default **800**). Time-decay weighting makes a single round of matches negligible against a ~64,000-row corpus, so refitting on one buys a redeploy and a Space restart to move probabilities in the third decimal. One weekly round across the configured divisions is ~190 matches, so 800 refits roughly monthly. Set it to `0` to refit on any new data, or `retrain_check.enabled: false` to refit only via `--force`.
+
+> **Reading `training_results.json` after the league expansion:** the headline accuracy and log-loss come from the model's own held-out slice, which now includes lower divisions that are inherently harder to predict. Those numbers dropped (≈0.53 → 0.49 accuracy) purely because the test population changed — it is not a regression in the original six leagues, where the measured effect was nil.
 
 #### Inference workflow (`.github/workflows/run-inference.yml`)
 Runs **daily at 06:30 UTC**, after retraining completes, or manually:
@@ -598,6 +624,9 @@ uv run python scripts/tune_blend_weight.py
 
 # Upload model + Parquet datasets to Hugging Face
 HF_TOKEN=hf_... HF_REPO_ID=user/repo uv run python scripts/upload_to_hf.py
+
+# Publish only the datasets, leaving the model artefacts alone
+HF_TOKEN=hf_... HF_REPO_ID=user/repo uv run python scripts/upload_to_hf.py --datasets-only
 
 # Restart the Space so it reloads the uploaded snapshot (--dry-run to preview)
 HF_TOKEN=hf_... HF_SPACE_REPO_ID=user/space uv run python scripts/restart_hf_space.py

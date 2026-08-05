@@ -45,20 +45,19 @@ _FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 _FIXTURES_CACHE = Path("/tmp/fixtures.csv")
 _FIXTURES_CACHE_AGE = 60 * 60  # 1 hour
 
-DIVISION_MAP = {
-    "E0": "Premier League",
-    "SP1": "La Liga",
-    "D1": "Bundesliga",
-    "I1": "Serie A",
-    "F1": "Ligue 1",
-    "P1": "Liga Portugal",
-}
+#: Division code → league name, populated from ``data.leagues`` at startup.
+#: Holding a literal copy here meant every league added to the config had to be
+#: mirrored by hand, and a missed edit silently mislabelled fixtures. Reads
+#: before startup fall back to the raw division code, which is also the right
+#: display for a division the config does not cover.
+DIVISION_MAP: dict[str, str] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _PREDICTOR, _CONFIG, _ENRICHED_DATA, _TEAMS_BY_LEAGUE, _INSIGHTS
     _CONFIG = load_config()
+    DIVISION_MAP.update(_CONFIG.data.leagues)
     model_dir = _download_model(_CONFIG)
     _PREDICTOR = MatchPredictor(model_dir)
     # Pre-compute enriched features once at startup

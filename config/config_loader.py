@@ -166,7 +166,15 @@ class OddsAPIConfig(BaseModel):
 
 
 class RetrainCheckConfig(BaseModel):
+    #: ``False`` means never refit automatically — ``--force`` only.
     enabled: bool = True
+    #: Matches that must accumulate since the model's last training date before
+    #: a refit is worth its cost. Time-decay weighting makes a single round of
+    #: matches negligible against a multi-season corpus, so refitting on one
+    #: buys a redeploy and a service restart for no measurable gain. 0 refits
+    #: on any new data. Scale it with the configured leagues: one weekly round
+    #: is roughly ``len(data.leagues) * 9`` matches.
+    min_new_matches: int = 0
 
 
 class InferenceConfig(BaseModel):

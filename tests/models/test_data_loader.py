@@ -324,3 +324,178 @@ class TestSpaceDataLoaderStaysInSync:
             "df.assign(League=self.config.leagues.get(league, league))"
             in self._space_loader_source()
         )
+
+
+class TestDownloadedDivisionIsVerified:
+    """football-data.co.uk 301-redirects a not-yet-published season's file onto
+    a *different* division (``2627/SP1.csv`` → ``2627/SC1.csv``). Trusting the
+    response labels Scottish Championship matches as La Liga, poisoning both
+    the training corpus and the teams registry, so the payload must be checked
+    against the division that was actually requested.
+    """
+
+    HEADER_COLUMNS = ["Div", "Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"]
+
+    def _frame(self, div: str | None) -> pd.DataFrame:
+        rows = {
+            "Date": ["09/08/2026", "16/08/2026"],
+            "HomeTeam": ["Arbroath", "Ayr"],
+            "AwayTeam": ["Ayr", "Arbroath"],
+            "FTHG": [1, 2],
+            "FTAG": [0, 2],
+            "FTR": ["H", "D"],
+        }
+        if div is not None:
+            rows = {"Div": [div, div], **rows}
+        return pd.DataFrame(rows)
+
+    def _loader(self, data_config, tmp_path, monkeypatch, downloaded):
+        """A loader whose cache is isolated and whose web fetch is stubbed."""
+        import src.models.data_loader as module
+
+        monkeypatch.setattr(module, "_CACHE_DIR", tmp_path / "cache")
+        (tmp_path / "cache").mkdir(parents=True, exist_ok=True)
+
+        real_read_csv = pd.read_csv
+
+        def fake_read_csv(source, *args, **kwargs):
+            if isinstance(source, str) and source.startswith("http"):
+                if isinstance(downloaded, Exception):
+                    raise downloaded
+                return downloaded
+            return real_read_csv(source, *args, **kwargs)
+
+        monkeypatch.setattr(module.pd, "read_csv", fake_read_csv)
+        return module.FootballDataLoader(data_config)
+
+    def test_rejects_a_payload_from_a_different_division(
+        self, data_config, tmp_path, monkeypatch
+    ):
+        loader = self._loader(data_config, tmp_path, monkeypatch, self._frame("SC1"))
+        assert loader.load_season("SP1", "2627").empty
+
+    def test_does_not_cache_a_mismatched_payload(
+        self, data_config, tmp_path, monkeypatch
+    ):
+        loader = self._loader(data_config, tmp_path, monkeypatch, self._frame("SC1"))
+        loader.load_season("SP1", "2627")
+        assert not (tmp_path / "cache" / "2627_SP1.csv").exists()
+
+    def test_accepts_a_matching_division(self, data_config, tmp_path, monkeypatch):
+        loader = self._loader(data_config, tmp_path, monkeypatch, self._frame("SP1"))
+        result = loader.load_season("SP1", "2627")
+        assert len(result) == 2
+        assert (tmp_path / "cache" / "2627_SP1.csv").exists()
+
+    def test_accepts_a_payload_with_no_division_column(
+        self, data_config, tmp_path, monkeypatch
+    ):
+        """Absent evidence is not evidence of a mismatch."""
+        loader = self._loader(data_config, tmp_path, monkeypatch, self._frame(None))
+        assert len(loader.load_season("SP1", "2627")) == 2
+
+    def test_rejects_an_already_poisoned_cache_file(
+        self, data_config, tmp_path, monkeypatch
+    ):
+        """A bad file written before this check existed must not be trusted."""
+        loader = self._loader(
+            data_config, tmp_path, monkeypatch, RuntimeError("network down")
+        )
+        self._frame("SC1").to_csv(tmp_path / "cache" / "2627_SP1.csv", index=False)
+        assert loader.load_season("SP1", "2627").empty
+
+    def test_space_copy_verifies_the_division(self):
+        """The Space downloads from football-data.co.uk too, so it is exposed
+        to the same redirect and needs the same guard."""
+        source = TestSpaceDataLoaderStaysInSync._space_loader_source()
+        assert "_is_requested_division" in source
+        assert 'DIVISION_COLUMN: ClassVar[str] = "Div"' in source
+
+
+class TestTolerantEncoding:
+    """Some football-data.co.uk season files carry a stray cp1252 byte inside
+    an odds column (1819/SC0 and 1819/I2 both do). A strict UTF-8 read aborts
+    on it and silently drops the entire season, so the reader falls back to
+    latin-1, which decodes every byte."""
+
+    ROWS = (
+        b"Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR,B365H\n"
+        b"SC0,04/08/2018,Celtic,Hearts,1,0,H,8\xa0\n"
+        b"SC0,11/08/2018,Hearts,Celtic,2,2,D,3.5\n"
+    )
+
+    def _loader(self, data_config, tmp_path, monkeypatch):
+        import src.models.data_loader as module
+
+        cache = tmp_path / "cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(module, "_CACHE_DIR", cache)
+        return module.FootballDataLoader(data_config), cache
+
+    def test_reads_a_cached_file_with_cp1252_bytes(
+        self, data_config, tmp_path, monkeypatch
+    ):
+        loader, cache = self._loader(data_config, tmp_path, monkeypatch)
+        (cache / "1819_SC0.csv").write_bytes(self.ROWS)
+        assert len(loader.load_season("SC0", "1819")) == 2
+
+    def test_still_reads_plain_utf8(self, data_config, tmp_path, monkeypatch):
+        loader, cache = self._loader(data_config, tmp_path, monkeypatch)
+        (cache / "1819_SC0.csv").write_bytes(self.ROWS.replace(b"\xa0", b""))
+        assert len(loader.load_season("SC0", "1819")) == 2
+
+
+class TestMixedAndFailingDivisions:
+    """Phase 3: partial failures must not take the rest of the corpus down."""
+
+    def test_a_frame_mixing_divisions_is_rejected(self, data_config, tmp_path, monkeypatch):
+        import src.models.data_loader as module
+
+        cache = tmp_path / "cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(module, "_CACHE_DIR", cache)
+        loader = module.FootballDataLoader(data_config)
+        mixed = pd.DataFrame(
+            {
+                "Div": ["SP1", "SC1"],
+                "Date": ["09/08/2026", "09/08/2026"],
+                "HomeTeam": ["Barcelona", "Ayr"],
+                "AwayTeam": ["Betis", "Arbroath"],
+                "FTHG": [1, 1],
+                "FTAG": [0, 0],
+                "FTR": ["H", "H"],
+            }
+        )
+        assert loader._is_requested_division(mixed, "SP1") is False
+
+    def test_load_all_keeps_going_when_one_league_fails(
+        self, data_config, tmp_path, monkeypatch
+    ):
+        """A 404 on one league-season must not empty the whole corpus."""
+        import src.models.data_loader as module
+
+        cache = tmp_path / "cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(module, "_CACHE_DIR", cache)
+
+        good = pd.DataFrame(
+            {
+                "Div": ["E0"],
+                "Date": ["09/08/2024"],
+                "HomeTeam": ["Arsenal"],
+                "AwayTeam": ["Chelsea"],
+                "FTHG": [2],
+                "FTAG": [0],
+                "FTR": ["H"],
+            }
+        )
+
+        def fake_read_csv(source, *args, **kwargs):
+            if isinstance(source, str) and "E0" in source:
+                return good
+            raise OSError("HTTP Error 404: Not Found")
+
+        monkeypatch.setattr(module.pd, "read_csv", fake_read_csv)
+        result = module.FootballDataLoader(data_config).load_all()
+        assert not result.empty
+        assert set(result["League"]) == {"Premier League"}
