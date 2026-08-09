@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class AppConfig(BaseModel):
@@ -10,10 +10,47 @@ class AppConfig(BaseModel):
 
 
 class DataConfig(BaseModel):
+    """Two league sets, deliberately different sizes.
+
+    ``leagues`` is the **corpus**: every division the loader downloads, the
+    trainer learns from and the ELO walk spans. ``served_leagues`` is the
+    **product**: the subset a user can see and select.
+
+    Keeping the corpus wider is not an oversight. The secondary divisions are
+    roughly half the training rows, and a global ELO pool means they are the
+    only reason a promoted side arrives carrying a real rating instead of the
+    default — so they stay trained on long after they stop being offered.
+    """
+
     base_url: str
     seasons: list[str]
     leagues: dict[str, str]
+    #: Codes offered by the API and the UI. Must be a non-empty subset of
+    #: ``leagues``. Required on purpose: defaulting to "all" would silently
+    #: re-serve every division the moment the key went missing (§7.4).
+    served_leagues: list[str]
     columns_to_keep: list[str]
+
+    @field_validator("served_leagues")
+    @classmethod
+    def _served_must_be_a_configured_subset(
+        cls, value: list[str], info: ValidationInfo
+    ) -> list[str]:
+        if not value:
+            raise ValueError("served_leagues must not be empty")
+        # `leagues` is declared first, so it is already validated and present
+        # in `info.data` — unless it failed, in which case its own error is
+        # the one worth reporting and this check has nothing to compare to.
+        leagues = info.data.get("leagues")
+        if leagues is None:
+            return value
+        unknown = [code for code in value if code not in leagues]
+        if unknown:
+            raise ValueError(
+                f"served_leagues contains codes absent from leagues: "
+                f"{', '.join(sorted(unknown))}"
+            )
+        return value
 
 
 class EloConfig(BaseModel):

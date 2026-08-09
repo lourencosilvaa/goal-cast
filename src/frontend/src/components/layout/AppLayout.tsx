@@ -1,33 +1,38 @@
 import { Outlet, useLocation } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
-import { AuroraBackground } from '@/components/ui/AuroraBackground';
 import { RetrainingBanner } from '@/components/RetrainingBanner';
+import { titleForPath } from '@/config/nav';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 
+/**
+ * The application shell: a fixed-height row of nav rail + main column.
+ *
+ * The shell itself never scrolls. Each page owns its own scrolling region,
+ * which is what lets the dashboard keep its ticker, hero and filter bar pinned
+ * while only the match list moves.
+ */
 export function AppLayout() {
   const location = useLocation();
 
   return (
     <div className="h-screen overflow-hidden bg-bg text-fg flex">
-      <AuroraBackground />
       <Sidebar />
-      <main className="flex-1 overflow-y-auto scrollbar-hide relative z-10">
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <RetrainingBanner />
-        <div className="p-4 md:p-6 pb-24 md:pb-6 max-w-[1600px] mx-auto">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+
+        <header className="flex items-center gap-3 px-5 md:px-7 py-4 border-b border-line shrink-0">
+          <h1 className="text-xl font-extrabold tracking-[-0.01em] text-fg">
+            {titleForPath(location.pathname)}
+          </h1>
+        </header>
+
+        {/* pb on mobile clears the fixed bottom nav. */}
+        <div className="flex-1 flex flex-col overflow-hidden pb-20 md:pb-0">
+          <Outlet />
         </div>
-      </main>
+      </div>
+
       <MobileNav />
     </div>
   );

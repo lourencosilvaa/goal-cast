@@ -72,7 +72,7 @@ export function GoalMarketsPanel({
             {markets.top_scorelines.map((scoreline, i) => (
               <span
                 key={scoreline.score}
-                className={`text-xs px-2.5 py-1 rounded-lg border ${
+                className={`text-xs px-2.5 py-1 rounded-md border ${
                   i === 0
                     ? 'bg-accent-green/15 text-accent-green border-accent-green/25'
                     : 'bg-card-2 text-fg-muted border-line'

@@ -24,7 +24,7 @@ export function StatTile({
 }) {
   return (
     <div
-      className={`text-center px-2 py-2 rounded-xl border ${
+      className={`text-center px-2 py-2 rounded-md border ${
         accent ? ACCENT_SURFACE[accent] : 'bg-card-2 border-line'
       }`}
     >
@@ -77,7 +77,7 @@ export function FormPills({ sequence }: { sequence: string[] }) {
       {sequence.map((result, i) => (
         <span
           key={i}
-          className={`w-6 h-6 rounded-lg border text-[11px] font-semibold flex items-center justify-center ${
+          className={`w-6 h-6 rounded-md border text-[11px] font-semibold flex items-center justify-center ${
             style[result] ?? 'bg-card-2 text-fg-muted border-line'
           }`}
           title={result}

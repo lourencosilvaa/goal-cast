@@ -1,17 +1,19 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Wand2, Loader2 } from 'lucide-react';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { NeonButton } from '@/components/ui/NeonButton';
+import { useState } from 'react';
+import { Loader2, Wand2 } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
+import { SectionLabel } from '@/components/ui/SectionLabel';
 import { LeagueSelect } from '@/components/ui/LeagueSelect';
 import { TeamCombobox } from '@/components/ui/TeamCombobox';
+import { ProbabilityBar, ProbabilityLegend } from '@/components/ui/ProbabilityBar';
+import { PageBody } from '@/components/layout/PageBody';
 import { HeadToHeadPanel } from '@/components/stats/HeadToHeadPanel';
 import { GoalMarketsPanel } from '@/components/stats/GoalMarketsPanel';
 import { TeamComparison } from '@/components/stats/TeamComparison';
-import { DEFAULT_LEAGUE_CODE } from '@/config/leagues';
+import { useLeagues } from '@/hooks/useLeagues';
+import { useTeams } from '@/hooks/useTeams';
 import {
   fetchMatchStats,
-  fetchTeams,
   predictCustom,
   type CustomPrediction,
   type MatchStats,
@@ -23,49 +25,32 @@ const OUTCOME_LABELS: Record<string, string> = {
   'Away Win': 'Vitória Fora',
 };
 
-const OUTCOME_COLORS: Record<string, string> = {
-  'Home Win': 'text-accent-green',
-  Draw: 'text-accent-amber',
-  'Away Win': 'text-accent-blue',
+const OUTCOME_SHORTHAND: Record<string, string> = {
+  'Home Win': '1',
+  Draw: 'X',
+  'Away Win': '2',
 };
-
-function ProbBar({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-xs">
-        <span className="text-fg-muted">{label}</span>
-        <span className={`font-semibold ${color}`}>{(value * 100).toFixed(1)}%</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-card-2 overflow-hidden">
-        <motion.div
-          className={`h-full rounded-full bg-current ${color}`}
-          initial={{ width: 0 }}
-          animate={{ width: `${value * 100}%` }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-        />
-      </div>
-    </div>
-  );
-}
 
 export function CustomPredictPage() {
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
-  const [leagueCode, setLeagueCode] = useState(DEFAULT_LEAGUE_CODE);
+  const [leagueCode, setLeagueCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CustomPrediction | null>(null);
   const [stats, setStats] = useState<MatchStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [teamsByLeague, setTeamsByLeague] = useState<Record<string, string[]>>({});
 
-  useEffect(() => {
-    fetchTeams()
-      .then(setTeamsByLeague)
-      .catch(() => {});
-  }, []);
+  const { domestic } = useLeagues();
+  const { teamsFor, error: teamsError } = useTeams();
 
-  const currentTeams = teamsByLeague[leagueCode] ?? [];
+  /*
+   * Derived rather than stored: the default is the first league the backend
+   * offers, which is not known at mount. Deriving avoids an effect that would
+   * write state as soon as the list arrives.
+   */
+  const activeLeague = leagueCode || domestic[0]?.code || '';
+  const currentTeams = teamsFor(activeLeague);
 
   function handleLeagueChange(code: string) {
     setLeagueCode(code);
@@ -80,7 +65,7 @@ export function CustomPredictPage() {
   async function handlePredict() {
     const home = homeTeam.trim();
     const away = awayTeam.trim();
-    if (!home || !away) return;
+    if (!home || !away || !activeLeague) return;
     setLoading(true);
     setResult(null);
     setStats(null);
@@ -90,17 +75,15 @@ export function CustomPredictPage() {
     // The prediction and the statistics are independent reads: a statistics
     // failure must never hide a successful prediction.
     const [prediction, matchStats] = await Promise.allSettled([
-      predictCustom(home, away, leagueCode),
-      fetchMatchStats(home, away, leagueCode),
+      predictCustom(home, away, activeLeague),
+      fetchMatchStats(home, away, activeLeague),
     ]);
 
     if (prediction.status === 'fulfilled') {
       setResult(prediction.value);
     } else {
       setError(
-        prediction.reason instanceof Error
-          ? prediction.reason.message
-          : 'Erro ao obter previsão',
+        prediction.reason instanceof Error ? prediction.reason.message : 'Erro ao obter previsão',
       );
     }
 
@@ -118,165 +101,117 @@ export function CustomPredictPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-fg">Previsão Personalizada</h1>
-        <p className="text-sm text-fg-muted mt-1">
-          Escolhe duas equipas e obtém a previsão do modelo com o histórico do confronto
-        </p>
-      </div>
+    <PageBody
+      maxWidth="md"
+      intro="Escolhe duas equipas e gera a previsão do modelo para um confronto hipotético."
+    >
+      <Panel overflow="visible" className="flex flex-col gap-4">
+        <LeagueSelect value={activeLeague} onChange={handleLeagueChange} />
 
-      {/* overflow-visible: the team comboboxes drop a list past the card edge */}
-      <GlassCard className="space-y-5" overflow="visible">
-        <LeagueSelect value={leagueCode} onChange={handleLeagueChange} />
-
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-end">
           <TeamCombobox
-            label="Equipa Casa"
+            label="Casa"
             value={homeTeam}
             onChange={setHomeTeam}
-            teams={currentTeams.filter((t) => t !== awayTeam)}
-            placeholder="Selecionar..."
+            teams={currentTeams.filter((team) => team !== awayTeam)}
+            placeholder="Selecionar…"
           />
+          <span className="hidden sm:block pb-3 text-xs text-fg-subtle">vs</span>
           <TeamCombobox
-            label="Equipa Fora"
+            label="Fora"
             value={awayTeam}
             onChange={setAwayTeam}
-            teams={currentTeams.filter((t) => t !== homeTeam)}
-            placeholder="Selecionar..."
+            teams={currentTeams.filter((team) => team !== homeTeam)}
+            placeholder="Selecionar…"
           />
         </div>
 
-        <NeonButton
-          variant="primary"
-          size="md"
-          loading={loading}
+        {teamsError && <p className="text-xs text-accent-red">{teamsError}</p>}
+
+        <Button
           onClick={handlePredict}
+          loading={loading}
           disabled={!homeTeam.trim() || !awayTeam.trim()}
           className="w-full"
         >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 inline animate-spin" />
-              A calcular...
-            </>
-          ) : (
-            <>
-              <Wand2 className="w-4 h-4 mr-2 inline" />
-              Prever
-            </>
-          )}
-        </NeonButton>
-      </GlassCard>
+          <Wand2 className="w-4 h-4" />
+          Gerar previsão
+        </Button>
+      </Panel>
 
       {error && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
-          <GlassCard className="text-center py-4">
-            <p className="text-accent-red text-sm">✗ {error}</p>
-          </GlassCard>
-        </motion.div>
+        <Panel accent="red" padding="sm" className="mt-4">
+          <p className="text-sm text-accent-red">{error}</p>
+        </Panel>
       )}
 
       {result && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-6"
-        >
-          <GlassCard className="space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-fg-subtle mb-1">{result.league}</p>
-                <p className="text-lg font-bold text-fg">
-                  {result.home_team} <span className="text-fg-subtle font-normal">vs</span>{' '}
-                  {result.away_team}
-                </p>
-              </div>
-              <div className="text-right">
-                <p
-                  className={`text-xl font-bold ${
-                    OUTCOME_COLORS[result.predicted_outcome] ?? 'text-fg'
-                  }`}
-                >
-                  {OUTCOME_LABELS[result.predicted_outcome] ?? result.predicted_outcome}
-                </p>
-                <p className="text-xs text-fg-subtle mt-0.5">
-                  {(result.confidence * 100).toFixed(0)}% confiança
-                </p>
-              </div>
-            </div>
+        <Panel className="mt-4 flex flex-col gap-4">
+          <div className="flex items-center gap-4">
+            <span className="text-xl font-extrabold text-fg truncate">{result.home_team}</span>
+            <span className="font-mono text-3xl font-extrabold text-accent shrink-0">
+              {OUTCOME_SHORTHAND[result.predicted_outcome] ?? '·'}
+            </span>
+            <span className="text-xl font-extrabold text-fg truncate">{result.away_team}</span>
+            <span className="ml-auto text-right shrink-0">
+              <span className="block font-mono text-xl font-bold text-fg">
+                {(result.confidence * 100).toFixed(0)}%
+              </span>
+              <SectionLabel>Confiança</SectionLabel>
+            </span>
+          </div>
 
-            <div className="space-y-3 pt-2 border-t border-line">
-              <ProbBar
-                label="Vitória Casa"
-                value={result.probabilities.home_win}
-                color="text-accent-green"
-              />
-              <ProbBar label="Empate" value={result.probabilities.draw} color="text-accent-amber" />
-              <ProbBar
-                label="Vitória Fora"
-                value={result.probabilities.away_win}
-                color="text-accent-blue"
-              />
-            </div>
+          <div>
+            <ProbabilityLegend
+              probabilities={result.probabilities}
+              homeLabel={result.home_team}
+              awayLabel={result.away_team}
+              className="mb-1.5"
+            />
+            <ProbabilityBar probabilities={result.probabilities} />
+          </div>
 
-            <p className="text-[10px] text-fg-subtle text-center">
-              Previsão baseada em dados históricos · Aposte com responsabilidade
-            </p>
-          </GlassCard>
-        </motion.div>
+          <p className="font-mono text-xs text-accent">
+            {result.league} · {OUTCOME_LABELS[result.predicted_outcome] ?? result.predicted_outcome}
+          </p>
+
+          <p className="text-[11px] text-fg-subtle">
+            Previsão baseada em dados históricos · Aposta com responsabilidade.
+          </p>
+        </Panel>
       )}
 
       {stats?.goal_markets && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="mt-4"
-        >
-          <GlassCard>
-            <GoalMarketsPanel
-              markets={stats.goal_markets}
-              homeTeam={stats.home_team}
-              awayTeam={stats.away_team}
-            />
-          </GlassCard>
-        </motion.div>
+        <Panel className="mt-4">
+          <GoalMarketsPanel
+            markets={stats.goal_markets}
+            homeTeam={stats.home_team}
+            awayTeam={stats.away_team}
+          />
+        </Panel>
       )}
 
       {stats && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mt-4"
-        >
-          <GlassCard>
-            <HeadToHeadPanel h2h={stats.head_to_head} />
-          </GlassCard>
-        </motion.div>
+        <Panel className="mt-4">
+          <HeadToHeadPanel h2h={stats.head_to_head} />
+        </Panel>
       )}
 
       {stats && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="mt-4"
-        >
-          <GlassCard>
-            <TeamComparison home={stats.home} away={stats.away} />
-          </GlassCard>
-        </motion.div>
+        <Panel className="mt-4">
+          <TeamComparison home={stats.home} away={stats.away} />
+        </Panel>
       )}
 
       {statsError && !stats && (
-        <div className="mt-4">
-          <GlassCard className="text-center py-3">
-            <p className="text-xs text-fg-subtle">Estatísticas indisponíveis: {statsError}</p>
-          </GlassCard>
+        <p className="mt-4 text-xs text-fg-subtle">Estatísticas indisponíveis: {statsError}</p>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 mt-4 text-xs text-fg-subtle">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />A calcular…
         </div>
       )}
-    </div>
+    </PageBody>
   );
 }

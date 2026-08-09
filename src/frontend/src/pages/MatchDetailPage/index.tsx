@@ -1,18 +1,14 @@
 import { useMemo } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, CircleSlash } from 'lucide-react';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { NeonButton } from '@/components/ui/NeonButton';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
+import { SectionLabel } from '@/components/ui/SectionLabel';
+import { PageBody } from '@/components/layout/PageBody';
 import { MatchDetail } from '@/components/match/MatchDetail';
 import { usePredictions } from '@/contexts/PredictionsContext';
 import { findMatchById } from '@/lib/matchId';
-
-function todayStr(): string {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm}/${d.getFullYear()}`;
-}
+import { todayStr } from '@/lib/dates';
 
 /** Standalone match detail page — used on narrow screens and for deep links. */
 export function MatchDetailPage() {
@@ -26,35 +22,33 @@ export function MatchDetailPage() {
   const resolved = useMemo(() => findMatchById(leagues, matchId), [leagues, matchId]);
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <PageBody maxWidth="md">
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg mb-4 transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 text-xs font-semibold text-fg-subtle hover:text-fg mb-4 transition-colors cursor-pointer"
       >
-        <ArrowLeft className="w-4 h-4" />
+        <ArrowLeft className="w-3.5 h-3.5" />
         Voltar
       </button>
 
       {loading && !resolved ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-accent-blue animate-spin" />
+        <div className="flex items-center justify-center gap-3 py-16 text-fg-muted text-sm">
+          <Loader2 className="w-5 h-5 text-accent animate-spin" />
+          A carregar…
         </div>
       ) : resolved ? (
-        <GlassCard accent={resolved.match.value_bets.length > 0 ? 'green' : 'neutral'}>
-          <p className="text-xs text-fg-subtle mb-4">{resolved.leagueName}</p>
+        <Panel accent={resolved.match.value_bets.length > 0 ? 'green' : 'neutral'}>
+          <SectionLabel className="mb-4">{resolved.leagueName}</SectionLabel>
           <MatchDetail match={resolved.match} />
-        </GlassCard>
+        </Panel>
       ) : (
-        <GlassCard className="text-center py-10">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-card-2 flex items-center justify-center">
-            <CircleSlash className="w-6 h-6 text-fg-subtle" />
-          </div>
-          <p className="text-fg-muted mb-4">Jogo não encontrado.</p>
-          <NeonButton variant="secondary" size="sm" onClick={() => navigate('/')}>
+        <Panel className="text-center">
+          <p className="text-sm text-fg-muted mb-4">Jogo não encontrado.</p>
+          <Button variant="outline" size="sm" onClick={() => navigate('/')}>
             Ir para o Dashboard
-          </NeonButton>
-        </GlassCard>
+          </Button>
+        </Panel>
       )}
-    </div>
+    </PageBody>
   );
 }

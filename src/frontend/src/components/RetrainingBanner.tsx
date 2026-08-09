@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { fetchRetrainStatus } from '@/lib/api';
 
@@ -23,14 +23,15 @@ export function RetrainingBanner() {
   if (!retraining || dismissed) return null;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-sm">
+    <div className="flex items-center gap-3 px-5 md:px-7 py-2.5 bg-accent/12 border-b border-accent/45 text-accent text-[13px] shrink-0">
       <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
       <span className="flex-1">
-        O modelo está a ser re-treinado com dados mais recentes. As previsões podem demorar alguns minutos até estarem actualizadas.
+        O modelo está a ser re-treinado com dados mais recentes. As previsões podem demorar alguns
+        minutos até estarem actualizadas.
       </span>
       <button
         onClick={() => setDismissed(true)}
-        className="shrink-0 text-amber-400/60 hover:text-amber-300 transition-colors"
+        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
         aria-label="Fechar"
       >
         <X className="w-4 h-4" />

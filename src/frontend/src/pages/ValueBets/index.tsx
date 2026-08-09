@@ -1,10 +1,14 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { TrendingUp, Loader2, Calendar, Download } from 'lucide-react';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { NeonButton } from '@/components/ui/NeonButton';
-import { fetchAvailableDates, downloadExport } from '@/lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { Download, Loader2 } from 'lucide-react';
+import clsx from 'clsx';
+import { Button } from '@/components/ui/Button';
+import { Pill } from '@/components/ui/Pill';
+import { PageBody } from '@/components/layout/PageBody';
+import { FIELD_CLASS } from '@/components/ui/TeamCombobox';
+import { downloadExport, fetchAvailableDates } from '@/lib/api';
 import { usePredictions } from '@/contexts/PredictionsContext';
+import { dateFilter } from '@/config/theme';
+import { describeDate, formatDayPill, todayStr, withToday } from '@/lib/dates';
 import type { ValueBet } from '@/types';
 
 interface FlatValueBet extends ValueBet {
@@ -13,24 +17,11 @@ interface FlatValueBet extends ValueBet {
   league: string;
 }
 
-function confidenceColor(conf: string): string {
-  if (conf === 'HIGH') return 'bg-accent-green/15 text-accent-green border-accent-green/25';
-  if (conf === 'MEDIUM') return 'bg-accent-amber/15 text-accent-amber border-accent-amber/25';
-  return 'bg-accent-red/15 text-accent-red border-accent-red/25';
-}
-
-function todayStr(): string {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm}/${d.getFullYear()}`;
-}
-
-function formatDateLabel(d: string): string {
-  const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const [day, month] = d.split('/');
-  return `${parseInt(day)} ${months[parseInt(month) - 1]}`;
-}
+const CONFIDENCE_CLASS: Record<string, string> = {
+  HIGH: 'text-accent-green border-accent-green/40',
+  MEDIUM: 'text-accent-amber border-accent-amber/40',
+  LOW: 'text-fg-subtle border-line',
+};
 
 export function ValueBetsPage() {
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
@@ -40,37 +31,29 @@ export function ValueBetsPage() {
   const { data: allLeagues, loading } = usePredictions(selectedDate);
 
   useEffect(() => {
-    fetchAvailableDates()
-      .then((dates) => {
-        setAvailableDates(dates);
-        // Always default to the current day, even if it has no fixtures.
-      })
-      .catch(() => {});
+    fetchAvailableDates().then(setAvailableDates).catch(() => {});
   }, []);
 
   const valueBets = useMemo<FlatValueBet[]>(() => {
     const flat: FlatValueBet[] = [];
     for (const league of allLeagues) {
       for (const match of league.matches) {
-        for (const vb of match.value_bets) {
-          flat.push({ ...vb, home_team: match.home_team, away_team: match.away_team, league: match.league });
+        for (const bet of match.value_bets) {
+          flat.push({
+            ...bet,
+            home_team: match.home_team,
+            away_team: match.away_team,
+            league: match.league,
+          });
         }
       }
     }
     return flat.sort((a, b) => b.edge - a.edge);
   }, [allLeagues]);
 
-  const handleDateChange = useCallback((date: string) => setSelectedDate(date), []);
-
-  // Always include today in the date options, even without fixtures, sorted
-  // most-recent first, so the dropdown always reflects the current day.
-  const displayDates = [todayStr(), ...availableDates.filter((d) => d !== todayStr())].sort(
-    (a, b) => {
-      const [da, ma, ya] = a.split('/').map(Number);
-      const [db, mb, yb] = b.split('/').map(Number);
-      return new Date(yb, mb - 1, db).getTime() - new Date(ya, ma - 1, da).getTime();
-    },
-  );
+  const displayDates = useMemo(() => withToday(availableDates), [availableDates]);
+  const pillDates = displayDates.slice(0, dateFilter.maxPills);
+  const overflowDates = displayDates.slice(dateFilter.maxPills);
 
   async function handleExport(format: 'csv' | 'excel') {
     setExporting(true);
@@ -82,110 +65,106 @@ export function ValueBetsPage() {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-fg">Apostas de Valor</h1>
-          <p className="text-sm text-fg-muted mt-1">
-            Oportunidades onde o modelo ML identifica valor vs odds do bookmaker
-          </p>
+    <PageBody intro="Jogos onde a probabilidade do modelo mais diverge da probabilidade implícita nas odds do bookmaker.">
+      <div className="flex items-center gap-3 flex-wrap mb-5">
+        <div className="flex gap-1.5 flex-wrap">
+          {pillDates.map((date) => (
+            <Pill
+              key={date}
+              mono
+              active={date === selectedDate}
+              onClick={() => setSelectedDate(date)}
+              title={date}
+            >
+              {date === todayStr() ? 'HOJE' : formatDayPill(date)}
+            </Pill>
+          ))}
+          {overflowDates.length > 0 && (
+            <select
+              value={overflowDates.includes(selectedDate) ? selectedDate : ''}
+              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+              aria-label="Outras datas"
+              className={`${FIELD_CLASS} py-1.5 text-xs font-mono cursor-pointer`}
+            >
+              <option value="">Mais datas…</option>
+              {overflowDates.map((date) => (
+                <option key={date} value={date} className="bg-card text-fg">
+                  {describeDate(date)}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
-        <div className="flex items-center gap-3">
-          {displayDates.length > 0 && (
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-subtle pointer-events-none" />
-              <select
-                value={selectedDate}
-                onChange={(e) => handleDateChange(e.target.value)}
-                className="appearance-none pl-8 pr-8 py-2 rounded-xl text-sm font-medium bg-card border border-line text-fg cursor-pointer focus:outline-none focus:border-accent-blue/40"
-              >
-                {displayDates.map((d) => (
-                  <option key={d} value={d} className="bg-card text-fg">
-                    {d === todayStr() ? `Hoje (${formatDateLabel(d)})` : formatDateLabel(d)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          <NeonButton variant="secondary" size="sm" loading={exporting} onClick={() => handleExport('csv')}>
-            <Download className="w-3.5 h-3.5 mr-1.5 inline" />
+        <div className="flex gap-2 ml-auto">
+          <Button variant="outline" size="sm" disabled={exporting} onClick={() => handleExport('csv')}>
+            <Download className="w-3.5 h-3.5" />
             CSV
-          </NeonButton>
-          <NeonButton variant="secondary" size="sm" loading={exporting} onClick={() => handleExport('excel')}>
-            <Download className="w-3.5 h-3.5 mr-1.5 inline" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exporting}
+            onClick={() => handleExport('excel')}
+          >
+            <Download className="w-3.5 h-3.5" />
             Excel
-          </NeonButton>
+          </Button>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-accent-blue animate-spin" />
+        <div className="flex items-center justify-center gap-3 py-16 text-fg-muted text-sm">
+          <Loader2 className="w-5 h-5 text-accent animate-spin" />
+          A carregar…
         </div>
       ) : valueBets.length === 0 ? (
-        <GlassCard className="text-center py-10">
-          <TrendingUp className="w-10 h-10 text-fg-subtle mx-auto mb-3" />
-          <p className="text-fg-muted">
-            Sem apostas de valor detetadas para{' '}
-            {selectedDate === todayStr() ? 'hoje' : formatDateLabel(selectedDate)}.
-          </p>
-        </GlassCard>
+        <p className="py-10 text-sm text-fg-subtle">
+          Sem apostas de valor detetadas para {describeDate(selectedDate)}.
+        </p>
       ) : (
-        <div className="space-y-3">
-          {valueBets.map((vb, i) => (
-            <motion.div
-              key={`${vb.home_team}-${vb.away_team}-${vb.outcome}-${i}`}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.04 }}
+        <div className="flex flex-col gap-2">
+          {valueBets.map((bet, i) => (
+            <div
+              key={`${bet.home_team}-${bet.away_team}-${bet.outcome}-${i}`}
+              className="flex items-center gap-4 flex-wrap px-5 py-3.5 rounded-lg border border-line-soft bg-card"
             >
-              <GlassCard accent="green" padding="md" className="neon-glow">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-3">
-                    <TrendingUp className="w-5 h-5 text-accent-green" />
-                    <div>
-                      <p className="text-fg font-semibold">
-                        {vb.home_team} vs {vb.away_team}
-                      </p>
-                      <p className="text-xs text-fg-muted">{vb.league}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 flex-wrap">
-                    <div className="text-center">
-                      <p className="text-[10px] text-fg-subtle">Aposta</p>
-                      <p className="text-sm font-semibold text-accent-green">{vb.outcome}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[10px] text-fg-subtle">Edge</p>
-                      <p className="text-sm font-bold text-accent-green">{vb.edge_pct}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[10px] text-fg-subtle">Odds</p>
-                      <p className="text-sm font-semibold text-fg">{vb.best_odds.toFixed(2)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[10px] text-fg-subtle">Kelly</p>
-                      <p className="text-sm text-fg-muted">{(vb.kelly_fraction * 100).toFixed(1)}%</p>
-                    </div>
-                    <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${confidenceColor(vb.confidence)}`}>
-                      {vb.confidence}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex gap-4 text-xs text-fg-muted">
-                  <span>
-                    ML: {(vb.ml_probability * 100).toFixed(1)}% vs B365:{' '}
-                    {(vb.bookmaker_implied * 100).toFixed(1)}%
-                  </span>
-                </div>
-              </GlassCard>
-            </motion.div>
+              <span className="w-[120px] shrink-0 font-mono text-[11px] text-fg-subtle truncate">
+                {bet.league}
+              </span>
+              <span className="flex-1 min-w-[180px] text-sm font-semibold text-fg truncate">
+                {bet.home_team} vs {bet.away_team}
+              </span>
+              <span className="w-[120px] shrink-0 text-[13px] text-fg-muted truncate">
+                {bet.outcome}
+              </span>
+              <span className="w-[110px] shrink-0 font-mono text-xs text-fg">
+                Modelo {(bet.ml_probability * 100).toFixed(1)}%
+              </span>
+              <span className="w-[110px] shrink-0 font-mono text-xs text-fg-subtle">
+                B365 {(bet.bookmaker_implied * 100).toFixed(1)}%
+              </span>
+              <span className="w-[70px] shrink-0 font-mono text-xs text-fg-muted">
+                @{bet.best_odds.toFixed(2)}
+              </span>
+              <span className="w-[80px] shrink-0 font-mono text-xs text-fg-subtle">
+                Kelly {(bet.kelly_fraction * 100).toFixed(1)}%
+              </span>
+              <span
+                className={clsx(
+                  'shrink-0 px-2 py-0.5 rounded border font-mono text-[10px] font-bold',
+                  CONFIDENCE_CLASS[bet.confidence] ?? CONFIDENCE_CLASS.LOW,
+                )}
+              >
+                {bet.confidence}
+              </span>
+              <span className="w-[70px] shrink-0 text-right font-mono text-[13px] font-bold text-accent">
+                {bet.edge_pct}
+              </span>
+            </div>
           ))}
         </div>
       )}
-    </div>
+    </PageBody>
   );
 }

@@ -102,7 +102,7 @@ function VenueCard({
   record: TeamStats['overall'];
 }) {
   return (
-    <div className="rounded-2xl border border-line bg-card-2/50 p-4 space-y-3">
+    <div className="rounded-lg border border-line bg-card-2/50 p-4 space-y-3">
       <div className="flex items-baseline justify-between">
         <h4 className="text-xs text-fg-subtle uppercase tracking-wider flex items-center gap-1.5">
           {icon}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Loader2, Tags, Trash2, TriangleAlert } from 'lucide-react';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { NeonButton } from '@/components/ui/NeonButton';
+import { Check, Loader2, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { SectionLabel } from '@/components/ui/SectionLabel';
 import {
   adminApproveTeamAlias,
   adminListTeamAliases,
@@ -82,9 +82,9 @@ export function TeamAliasPanel() {
 
   if (loading) {
     return (
-      <GlassCard className="flex items-center justify-center py-8">
+      <div className="flex items-center justify-center py-10">
         <Loader2 className="w-5 h-5 animate-spin text-fg-subtle" />
-      </GlassCard>
+      </div>
     );
   }
 
@@ -92,30 +92,25 @@ export function TeamAliasPanel() {
   const approved = data?.approved ?? [];
 
   return (
-    <GlassCard className="space-y-5" overflow="visible">
-      <div className="flex items-center gap-2">
-        <Tags className="w-4 h-4 text-accent-blue" />
-        <h2 className="text-sm font-semibold text-fg">Nomes de Equipas</h2>
-        {pending.length > 0 && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-amber/15 text-accent-amber border border-accent-amber/25 font-medium">
-            {pending.length} por rever
-          </span>
-        )}
-      </div>
-
-      <p className="text-xs text-fg-muted leading-relaxed">
-        Nomes recolhidos do FlashScore e das competições europeias que não
-        correspondem a nenhuma equipa conhecida. Enquanto não forem validados, os
-        jogos correspondentes são ignorados — nunca previstos com médias da liga.
-        A sugestão no topo vem pré-seleccionada, mas nada é aplicado sem confirmação.
+    <div className="flex flex-col gap-4">
+      <p className="text-[13px] text-fg-muted leading-relaxed max-w-[640px]">
+        Nomes recolhidos do FlashScore e das competições europeias que não correspondem a nenhuma
+        equipa conhecida. Enquanto não forem validados, os jogos correspondentes são ignorados —
+        nunca previstos com médias da liga. A sugestão no topo vem pré-seleccionada, mas nada é
+        aplicado sem confirmação.
       </p>
 
       {error && <p className="text-xs text-accent-red">✗ {error}</p>}
 
+      <div className="flex items-center gap-2">
+        <SectionLabel>Por rever</SectionLabel>
+        <span className="font-mono text-[11px] text-fg-subtle">{pending.length}</span>
+      </div>
+
       {pending.length === 0 ? (
         <p className="text-xs text-fg-subtle">Nada por rever.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {pending.map((entry) => {
             const id = key(entry.league_code, entry.raw_name);
             // Sent per entry: a UEFA scope ("EU-POR") is a country, not a
@@ -131,24 +126,24 @@ export function TeamAliasPanel() {
             return (
               <div
                 key={id}
-                className="flex flex-col sm:flex-row sm:items-center gap-2 px-3 py-2.5 rounded-xl bg-card-2 border border-line"
+                className="flex flex-col sm:flex-row sm:items-center gap-2.5 px-4 py-3 rounded-lg border border-line-soft bg-card"
               >
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <TriangleAlert className="w-3.5 h-3.5 text-accent-amber shrink-0" />
-                  <span className="text-sm text-fg truncate">{entry.raw_name}</span>
-                  <span className="text-[10px] text-fg-subtle shrink-0">
+                  <span className="text-sm font-semibold text-fg truncate">{entry.raw_name}</span>
+                  <span className="font-mono text-[10px] text-fg-subtle shrink-0">
                     {entry.league_code}
                   </span>
                   {entry.country && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue border border-accent-blue/25 shrink-0">
+                    <span className="px-1.5 py-0.5 rounded border border-line font-mono text-[9px] text-fg-subtle shrink-0">
                       {entry.country}
                     </span>
                   )}
                 </div>
+
                 <select
                   value={selected}
                   onChange={(e) => setChoice({ ...choice, [id]: e.target.value })}
-                  className="px-3 py-1.5 rounded-lg bg-card border border-line text-fg text-xs focus:outline-none focus:border-accent-blue/40 sm:w-56"
+                  className="px-3 py-1.5 rounded-md bg-card border border-line text-fg text-xs outline-none focus:border-accent/45 sm:w-56 cursor-pointer"
                 >
                   <option value="">Escolher equipa…</option>
                   {entry.suggestions.length > 0 && (
@@ -168,18 +163,16 @@ export function TeamAliasPanel() {
                     ))}
                   </optgroup>
                 </select>
-                <NeonButton
-                  variant="primary"
+
+                <Button
                   size="sm"
                   loading={busy === id}
                   disabled={!selected}
-                  onClick={() =>
-                    handleApprove(entry.league_code, entry.raw_name, selected)
-                  }
+                  onClick={() => handleApprove(entry.league_code, entry.raw_name, selected)}
                 >
-                  <Check className="w-3.5 h-3.5 mr-1 inline" />
+                  <Check className="w-3.5 h-3.5" />
                   Validar
-                </NeonButton>
+                </Button>
               </div>
             );
           })}
@@ -187,38 +180,43 @@ export function TeamAliasPanel() {
       )}
 
       {approved.length > 0 && (
-        <div className="space-y-2 pt-2 border-t border-line">
-          <p className="text-[10px] text-fg-subtle uppercase tracking-wider">
-            Validados ({approved.length})
-          </p>
-          {approved.map((entry) => {
-            const id = key(entry.league_code, entry.raw_name);
-            return (
-              <div
-                key={id}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-card-2 border border-line"
-              >
-                <span className="text-sm text-fg-muted truncate flex-1">
-                  {entry.raw_name}
-                </span>
-                <span className="text-fg-subtle text-xs">→</span>
-                <span className="text-sm text-accent-green truncate flex-1">
-                  {entry.canonical_name}
-                </span>
-                <span className="text-[10px] text-fg-subtle">{entry.league_code}</span>
-                <button
-                  onClick={() => handleRevoke(entry.league_code, entry.raw_name)}
-                  disabled={busy === id}
-                  className="p-1.5 rounded-lg text-fg-subtle hover:text-accent-red hover:bg-accent-red/10 transition-colors disabled:opacity-40"
-                  title="Remover"
+        <>
+          <div className="flex items-center gap-2 mt-2">
+            <SectionLabel>Validados</SectionLabel>
+            <span className="font-mono text-[11px] text-fg-subtle">{approved.length}</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {approved.map((entry) => {
+              const id = key(entry.league_code, entry.raw_name);
+              return (
+                <div
+                  key={id}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-line-soft bg-card"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                  <span className="text-[13px] text-fg-muted truncate flex-1">
+                    {entry.raw_name}
+                  </span>
+                  <span className="text-fg-subtle text-xs shrink-0">→</span>
+                  <span className="text-[13px] text-accent truncate flex-1">
+                    {entry.canonical_name}
+                  </span>
+                  <span className="font-mono text-[10px] text-fg-subtle shrink-0">
+                    {entry.league_code}
+                  </span>
+                  <button
+                    onClick={() => handleRevoke(entry.league_code, entry.raw_name)}
+                    disabled={busy === id}
+                    className="p-1.5 rounded text-fg-subtle hover:text-accent-red transition-colors disabled:opacity-40 cursor-pointer shrink-0"
+                    title="Remover"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
-    </GlassCard>
+    </div>
   );
 }

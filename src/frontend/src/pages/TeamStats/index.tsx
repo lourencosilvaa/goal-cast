@@ -1,30 +1,43 @@
-import { useCallback, useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Loader2, Search, Shield } from 'lucide-react';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { NeonButton } from '@/components/ui/NeonButton';
+import { useCallback, useState } from 'react';
+import { Loader2, Search } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
+import { SectionLabel } from '@/components/ui/SectionLabel';
 import { LeagueSelect } from '@/components/ui/LeagueSelect';
 import { TeamCombobox } from '@/components/ui/TeamCombobox';
+import { PageBody } from '@/components/layout/PageBody';
 import { TeamStatsPanel } from '@/components/stats/TeamStatsPanel';
-import { DEFAULT_LEAGUE_CODE } from '@/config/leagues';
-import { fetchTeamStats, fetchTeams, type TeamStats } from '@/lib/api';
+import { useLeagues } from '@/hooks/useLeagues';
+import { useTeams } from '@/hooks/useTeams';
+import { fetchTeamStats, type TeamStats } from '@/lib/api';
+
+function StatCard({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="p-4 rounded-lg border border-line-soft bg-card">
+      <div className="font-mono text-2xl font-bold text-accent leading-none">{value}</div>
+      <div className="text-[11px] text-fg-subtle mt-1.5">{label}</div>
+    </div>
+  );
+}
 
 /** Statistical profile of any single team in a supported league. */
 export function TeamStatsPage() {
-  const [leagueCode, setLeagueCode] = useState(DEFAULT_LEAGUE_CODE);
+  const [leagueCode, setLeagueCode] = useState('');
   const [team, setTeam] = useState('');
   const [stats, setStats] = useState<TeamStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [teamsByLeague, setTeamsByLeague] = useState<Record<string, string[]>>({});
 
-  useEffect(() => {
-    fetchTeams()
-      .then(setTeamsByLeague)
-      .catch(() => {});
-  }, []);
+  const { domestic } = useLeagues();
+  const { teamsFor, error: teamsError } = useTeams();
 
-  const currentTeams = teamsByLeague[leagueCode] ?? [];
+  /*
+   * Derived rather than stored: the default is the first league the backend
+   * offers, which is not known at mount. Deriving avoids an effect that would
+   * write state as soon as the list arrives.
+   */
+  const activeLeague = leagueCode || domestic[0]?.code || '';
+  const currentTeams = teamsFor(activeLeague);
 
   function handleLeagueChange(code: string) {
     setLeagueCode(code);
@@ -33,108 +46,100 @@ export function TeamStatsPage() {
     setError(null);
   }
 
-  const load = useCallback(
-    async (name: string, code: string) => {
-      setLoading(true);
-      setError(null);
-      setStats(null);
-      try {
-        setStats(await fetchTeamStats(name, code));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao obter estatísticas');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
+  const load = useCallback(async (name: string, code: string) => {
+    setLoading(true);
+    setError(null);
+    setStats(null);
+    try {
+      setStats(await fetchTeamStats(name, code));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao obter estatísticas');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   function handleTeamChange(name: string) {
     setTeam(name);
-    if (name) void load(name, leagueCode);
+    if (name && activeLeague) void load(name, activeLeague);
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-fg">Estatísticas de Equipa</h1>
-        <p className="text-sm text-fg-muted mt-1">
-          Registo histórico, forma recente e médias de qualquer equipa
-        </p>
-      </div>
-
-      {/* overflow-visible: the team combobox drops a list past the card edge */}
-      <GlassCard className="space-y-5" overflow="visible">
-        <LeagueSelect value={leagueCode} onChange={handleLeagueChange} />
+    <PageBody
+      maxWidth="md"
+      intro="Escolhe uma equipa para ver o seu registo histórico, forma recente e médias."
+    >
+      <Panel overflow="visible" className="flex flex-col gap-4">
+        <LeagueSelect value={activeLeague} onChange={handleLeagueChange} />
         <TeamCombobox
           label="Equipa"
           value={team}
           onChange={handleTeamChange}
           teams={currentTeams}
-          placeholder="Selecionar equipa..."
+          placeholder="Selecionar equipa…"
         />
-        <NeonButton
-          variant="primary"
-          size="md"
+        {teamsError && <p className="text-xs text-accent-red">{teamsError}</p>}
+
+        <Button
+          onClick={() => team.trim() && activeLeague && void load(team.trim(), activeLeague)}
           loading={loading}
-          onClick={() => team.trim() && void load(team.trim(), leagueCode)}
-          disabled={!team.trim()}
+          disabled={!team.trim() || !activeLeague}
           className="w-full"
         >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 inline animate-spin" />
-              A carregar...
-            </>
-          ) : (
-            <>
-              <Search className="w-4 h-4 mr-2 inline" />
-              Ver estatísticas
-            </>
-          )}
-        </NeonButton>
-      </GlassCard>
+          <Search className="w-4 h-4" />
+          Ver estatísticas
+        </Button>
+      </Panel>
 
       {error && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
-          <GlassCard className="text-center py-4">
-            <p className="text-accent-red text-sm">✗ {error}</p>
-          </GlassCard>
-        </motion.div>
+        <Panel accent="red" padding="sm" className="mt-4">
+          <p className="text-sm text-accent-red">{error}</p>
+        </Panel>
       )}
 
-      {!stats && !error && !loading && (
-        <div className="mt-6 text-center text-fg-subtle">
-          <Shield className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">Escolhe uma equipa para ver o seu perfil estatístico</p>
+      {loading && (
+        <div className="flex items-center gap-2 mt-4 text-xs text-fg-subtle">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />A carregar…
         </div>
       )}
 
-      {stats && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-6"
-        >
-          <GlassCard className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-fg-subtle mb-1">{stats.league}</p>
-                <p className="text-lg font-bold text-fg">{stats.team}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xl font-bold text-fg">
-                  {stats.overall.wins}-{stats.overall.draws}-{stats.overall.losses}
-                </p>
-                <p className="text-xs text-fg-subtle mt-0.5">V-E-D em {stats.overall.played} jogos</p>
-              </div>
-            </div>
-            <div className="pt-2 border-t border-line">
-              <TeamStatsPanel stats={stats} />
-            </div>
-          </GlassCard>
-        </motion.div>
+      {!stats && !error && !loading && (
+        <p className="mt-6 text-sm text-fg-subtle">
+          Nenhuma equipa selecionada.
+        </p>
       )}
-    </div>
+
+      {stats && (
+        <>
+          <div className="flex items-baseline gap-3 mt-6 mb-4">
+            <span className="text-xl font-extrabold text-fg">{stats.team}</span>
+            <SectionLabel>{stats.league}</SectionLabel>
+            <span className="ml-auto font-mono text-sm font-bold text-fg">
+              {stats.overall.wins}-{stats.overall.draws}-{stats.overall.losses}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            <StatCard value={String(stats.overall.played)} label="Jogos registados" />
+            <StatCard
+              value={stats.overall.points_per_game.toFixed(2)}
+              label="Pontos por jogo"
+            />
+            <StatCard
+              value={stats.overall.avg_goals_for.toFixed(2)}
+              label="Golos marcados / jogo"
+            />
+            <StatCard
+              value={stats.overall.avg_goals_against.toFixed(2)}
+              label="Golos sofridos / jogo"
+            />
+          </div>
+
+          <Panel>
+            <TeamStatsPanel stats={stats} />
+          </Panel>
+        </>
+      )}
+    </PageBody>
   );
 }

@@ -35,8 +35,17 @@ def get_team_repository(request: Request) -> TeamRepository:
 
 @router.get("/teams")
 async def get_teams(
+    request: Request,
     user_id: Annotated[str, Depends(get_current_user)],
     team_repo: Annotated[TeamRepository, Depends(get_team_repository)],
 ) -> dict[str, list[str]]:
-    """Return available team names grouped by league code."""
-    return await team_repo.get_teams()
+    """Return available team names for the leagues the product offers.
+
+    The repository upstream answers for the whole training corpus — the Space
+    is built from it, and the shipped registry ships every division. Scoping
+    happens here so the served set has exactly one definition (`config.data.
+    served_leagues`) instead of one per consumer.
+    """
+    served = set(request.app.state.config.data.served_leagues)
+    catalogue = await team_repo.get_teams()
+    return {code: teams for code, teams in catalogue.items() if code in served}

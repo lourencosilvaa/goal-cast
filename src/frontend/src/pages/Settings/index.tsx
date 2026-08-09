@@ -1,11 +1,18 @@
-import { useState, useEffect } from 'react';
-import { Key, Sparkles, Shield, ExternalLink, Cpu, LogOut, Loader2, Zap } from 'lucide-react';
-import { GlassCard } from '@/components/ui/GlassCard';
-import { NeonButton } from '@/components/ui/NeonButton';
+import { useEffect, useState } from 'react';
+import { ExternalLink } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
+import { SectionLabel } from '@/components/ui/SectionLabel';
+import { PageBody } from '@/components/layout/PageBody';
+import { FIELD_MONO_CLASS } from '@/components/ui/TeamCombobox';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getGeminiKeyStatus, saveGeminiKey, deleteGeminiKey,
-  getNvidiaKeyStatus, saveNvidiaKey, deleteNvidiaKey,
+  deleteGeminiKey,
+  deleteNvidiaKey,
+  getGeminiKeyStatus,
+  getNvidiaKeyStatus,
+  saveGeminiKey,
+  saveNvidiaKey,
 } from '@/lib/api';
 
 const GEMINI_MODELS = [
@@ -15,28 +22,114 @@ const GEMINI_MODELS = [
   { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
 ];
 
+const GEMINI_MODEL_STORAGE_KEY = 'gemini_model';
+const DEFAULT_GEMINI_MODEL = GEMINI_MODELS[0].value;
+const FEEDBACK_TIMEOUT_MS = 3000;
+
+type Feedback = { type: 'ok' | 'err'; msg: string } | null;
+
+/** Masked key field with a reveal toggle, as in the design's API form. */
+function KeyField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  configured,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  configured: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center gap-2 text-xs font-semibold text-fg-muted">
+        {label}
+        {configured && (
+          <span className="px-1.5 py-0.5 rounded border border-accent-green/40 font-mono text-[9px] font-bold text-accent-green">
+            CONFIGURADA
+          </span>
+        )}
+      </label>
+      <div className="flex gap-2">
+        <input
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={configured ? '••••••••  (deixa em branco para manter)' : placeholder}
+          className={`${FIELD_MONO_CLASS} flex-1 min-w-0`}
+        />
+        <Button variant="outline" size="md" type="button" onClick={() => setVisible((v) => !v)}>
+          {visible ? 'Ocultar' : 'Mostrar'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { user, signOut } = useAuth();
+
   const [geminiKey, setGeminiKey] = useState('');
-  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
-  const [hasStoredKey, setHasStoredKey] = useState(false);
+  const [geminiModel, setGeminiModel] = useState(DEFAULT_GEMINI_MODEL);
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [savingGemini, setSavingGemini] = useState(false);
+  const [geminiFeedback, setGeminiFeedback] = useState<Feedback>(null);
+
   const [nvidiaKey, setNvidiaKey] = useState('');
   const [hasNvidiaKey, setHasNvidiaKey] = useState(false);
   const [savingNvidia, setSavingNvidia] = useState(false);
-  const [nvidiaFeedback, setNvidiaFeedback] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [nvidiaFeedback, setNvidiaFeedback] = useState<Feedback>(null);
 
   useEffect(() => {
-    const storedModel = localStorage.getItem('gemini_model') || 'gemini-2.5-flash';
-    setGeminiModel(storedModel);
-    getGeminiKeyStatus().then(setHasStoredKey).catch(() => null);
+    setGeminiModel(localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || DEFAULT_GEMINI_MODEL);
+    getGeminiKeyStatus().then(setHasGeminiKey).catch(() => null);
     getNvidiaKeyStatus().then(setHasNvidiaKey).catch(() => null);
   }, []);
 
-  function showNvidiaFeedback(type: 'ok' | 'err', msg: string) {
-    setNvidiaFeedback({ type, msg });
-    setTimeout(() => setNvidiaFeedback(null), 3000);
+  function flash(set: (value: Feedback) => void, type: 'ok' | 'err', msg: string) {
+    set({ type, msg });
+    setTimeout(() => set(null), FEEDBACK_TIMEOUT_MS);
+  }
+
+  async function handleSaveGemini() {
+    setSavingGemini(true);
+    try {
+      if (geminiKey.trim()) {
+        await saveGeminiKey(geminiKey.trim());
+        setGeminiKey('');
+        setHasGeminiKey(true);
+      }
+      localStorage.setItem(GEMINI_MODEL_STORAGE_KEY, geminiModel);
+      flash(setGeminiFeedback, 'ok', 'Definições guardadas');
+    } catch (err) {
+      flash(
+        setGeminiFeedback,
+        'err',
+        err instanceof Error ? err.message : 'Erro ao guardar',
+      );
+    } finally {
+      setSavingGemini(false);
+    }
+  }
+
+  async function handleClearGemini() {
+    setSavingGemini(true);
+    try {
+      await deleteGeminiKey();
+      setGeminiKey('');
+      setHasGeminiKey(false);
+      localStorage.removeItem(GEMINI_MODEL_STORAGE_KEY);
+      setGeminiModel(DEFAULT_GEMINI_MODEL);
+      flash(setGeminiFeedback, 'ok', 'Chave removida');
+    } catch {
+      flash(setGeminiFeedback, 'err', 'Erro ao remover chave');
+    } finally {
+      setSavingGemini(false);
+    }
   }
 
   async function handleSaveNvidia() {
@@ -47,9 +140,9 @@ export function SettingsPage() {
         setNvidiaKey('');
         setHasNvidiaKey(true);
       }
-      showNvidiaFeedback('ok', 'Chave NVIDIA guardada');
+      flash(setNvidiaFeedback, 'ok', 'Chave NVIDIA guardada');
     } catch (err) {
-      showNvidiaFeedback('err', err instanceof Error ? err.message : 'Erro ao guardar');
+      flash(setNvidiaFeedback, 'err', err instanceof Error ? err.message : 'Erro ao guardar');
     } finally {
       setSavingNvidia(false);
     }
@@ -61,237 +154,123 @@ export function SettingsPage() {
       await deleteNvidiaKey();
       setNvidiaKey('');
       setHasNvidiaKey(false);
-      showNvidiaFeedback('ok', 'Chave removida');
+      flash(setNvidiaFeedback, 'ok', 'Chave removida');
     } catch {
-      showNvidiaFeedback('err', 'Erro ao remover chave');
+      flash(setNvidiaFeedback, 'err', 'Erro ao remover chave');
     } finally {
       setSavingNvidia(false);
     }
   }
 
-  function showFeedback(type: 'ok' | 'err', msg: string) {
-    setFeedback({ type, msg });
-    setTimeout(() => setFeedback(null), 3000);
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      if (geminiKey.trim()) {
-        await saveGeminiKey(geminiKey.trim());
-        setGeminiKey('');
-        setHasStoredKey(true);
-      }
-      localStorage.setItem('gemini_model', geminiModel);
-      showFeedback('ok', 'Definições guardadas');
-    } catch (err) {
-      showFeedback('err', err instanceof Error ? err.message : 'Erro ao guardar');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleClear() {
-    setSaving(true);
-    try {
-      await deleteGeminiKey();
-      setGeminiKey('');
-      setHasStoredKey(false);
-      localStorage.removeItem('gemini_model');
-      setGeminiModel('gemini-2.5-flash');
-      showFeedback('ok', 'Chave removida');
-    } catch {
-      showFeedback('err', 'Erro ao remover chave');
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-fg">Definições</h1>
-        <p className="text-sm text-fg-muted mt-1">
-          Configura as API keys para funcionalidades avançadas
-        </p>
-      </div>
+    <PageBody
+      maxWidth="md"
+      intro="Chaves de API para as funcionalidades avançadas. São encriptadas com Fernet AES antes de serem guardadas no servidor e nunca voltam a ser expostas ao cliente."
+    >
+      <Panel className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <SectionLabel>Sessão iniciada como</SectionLabel>
+          <p className="mt-1 font-mono text-[13px] text-fg truncate">{user?.email}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={signOut}>
+          Terminar sessão
+        </Button>
+      </Panel>
 
-      <div className="max-w-lg space-y-4">
-        {/* Account card */}
-        <GlassCard accent="blue">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-fg-muted mb-0.5">Sessão iniciada como</p>
-              <p className="text-sm text-fg font-mono">{user?.email}</p>
-            </div>
-            <NeonButton variant="ghost" onClick={signOut}>
-              <LogOut className="w-4 h-4 mr-1.5" />
-              Sair
-            </NeonButton>
-          </div>
-        </GlassCard>
+      <Panel className="mt-4 flex flex-col gap-4">
+        <SectionLabel>Google Gemini</SectionLabel>
 
-        {/* API keys card */}
-        <GlassCard accent="purple">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center">
-              <Key className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-fg">API Keys</h2>
-              <p className="text-xs text-fg-muted">Guardadas de forma encriptada no servidor</p>
-            </div>
-          </div>
+        <KeyField
+          label="API key"
+          value={geminiKey}
+          onChange={setGeminiKey}
+          placeholder="AIza…"
+          configured={hasGeminiKey}
+        />
 
-          {/* Gemini key */}
-          <div className="mb-5">
-            <label className="block text-sm text-fg-muted mb-2">
-              <Sparkles className="w-3.5 h-3.5 inline mr-1.5" />
-              Google Gemini API Key
-              {hasStoredKey && (
-                <span className="ml-2 text-[10px] text-accent-green bg-accent-green/10 px-1.5 py-0.5 rounded-full">
-                  Configurada
-                </span>
-              )}
-            </label>
-            <div className="relative">
-              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" />
-              <input
-                type="password"
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
-                placeholder={hasStoredKey ? '••••••••  (deixa em branco para manter)' : 'AIza...'}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg font-mono placeholder:text-fg-subtle transition-colors"
-              />
-            </div>
-            <a
-              href="https://aistudio.google.com/apikey"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-accent-blue hover:opacity-80 mt-2 transition-opacity"
-            >
-              Obter chave <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
+        <a
+          href="https://aistudio.google.com/apikey"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 w-fit text-xs text-accent hover:opacity-80"
+        >
+          Obter chave <ExternalLink className="w-3 h-3" />
+        </a>
 
-          {/* Model selector */}
-          <div className="mb-5">
-            <label className="block text-sm text-fg-muted mb-2">
-              <Cpu className="w-3.5 h-3.5 inline mr-1.5" />
-              Modelo Gemini
-            </label>
-            <select
-              value={geminiModel}
-              onChange={(e) => setGeminiModel(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg bg-transparent transition-colors appearance-none cursor-pointer"
-            >
-              {GEMINI_MODELS.map((m) => (
-                <option key={m.value} value={m.value} className="bg-card text-fg">
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-fg-muted">Modelo</label>
+          <select
+            value={geminiModel}
+            onChange={(e) => setGeminiModel(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-md bg-card border border-line text-fg text-sm outline-none focus:border-accent/45 transition-colors cursor-pointer"
+          >
+            {GEMINI_MODELS.map((model) => (
+              <option key={model.value} value={model.value} className="bg-card text-fg">
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
-          {/* Security note */}
-          <GlassCard padding="sm" className="mb-5">
-            <div className="flex items-start gap-2">
-              <Shield className="w-4 h-4 text-accent-blue mt-0.5 shrink-0" />
-              <p className="text-xs text-fg-muted leading-relaxed">
-                A API key é encriptada com Fernet AES antes de ser guardada no servidor.
-                Nunca é exposta ao cliente após ser guardada.
-              </p>
-            </div>
-          </GlassCard>
-
-          {/* Actions */}
-          <div className="flex gap-3">
-            <NeonButton onClick={handleSave} className="flex-1" disabled={saving}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Guardar'}
-            </NeonButton>
-            {hasStoredKey && (
-              <NeonButton variant="ghost" onClick={handleClear} disabled={saving}>
-                Remover chave
-              </NeonButton>
-            )}
-          </div>
-
-          {feedback && (
-            <p className={`text-xs text-center mt-3 ${feedback.type === 'ok' ? 'text-accent-green' : 'text-accent-red'}`}>
-              {feedback.type === 'ok' ? '✓' : '✗'} {feedback.msg}
-            </p>
+        <div className="flex gap-2">
+          <Button onClick={handleSaveGemini} loading={savingGemini} className="flex-1">
+            Guardar
+          </Button>
+          {hasGeminiKey && (
+            <Button variant="danger" onClick={handleClearGemini} disabled={savingGemini}>
+              Remover chave
+            </Button>
           )}
-        </GlassCard>
+        </div>
 
-        {/* NVIDIA API key card */}
-        <GlassCard accent="green">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-green to-accent-blue flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-fg">NVIDIA API Key</h2>
-              <p className="text-xs text-fg-muted">Para modelos NIM e inferência acelerada por GPU</p>
-            </div>
-          </div>
+        {geminiFeedback && (
+          <p
+            className={`text-xs ${geminiFeedback.type === 'ok' ? 'text-accent-green' : 'text-accent-red'}`}
+          >
+            {geminiFeedback.type === 'ok' ? '✓' : '✗'} {geminiFeedback.msg}
+          </p>
+        )}
+      </Panel>
 
-          <div className="mb-5">
-            <label className="block text-sm text-fg-muted mb-2">
-              <Zap className="w-3.5 h-3.5 inline mr-1.5" />
-              NVIDIA NIM API Key
-              {hasNvidiaKey && (
-                <span className="ml-2 text-[10px] text-accent-green bg-accent-green/10 px-1.5 py-0.5 rounded-full">
-                  Configurada
-                </span>
-              )}
-            </label>
-            <div className="relative">
-              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-subtle" />
-              <input
-                type="password"
-                value={nvidiaKey}
-                onChange={(e) => setNvidiaKey(e.target.value)}
-                placeholder={hasNvidiaKey ? '••••••••  (deixa em branco para manter)' : 'nvapi-...'}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl glass border border-line focus:border-accent-blue/40 focus:outline-none text-sm text-fg font-mono placeholder:text-fg-subtle transition-colors"
-              />
-            </div>
-            <a
-              href="https://build.nvidia.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-accent-blue hover:opacity-80 mt-2 transition-opacity"
-            >
-              Obter chave em build.nvidia.com <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
+      <Panel className="mt-4 flex flex-col gap-4">
+        <SectionLabel>NVIDIA NIM</SectionLabel>
 
-          <GlassCard padding="sm" className="mb-5">
-            <div className="flex items-start gap-2">
-              <Shield className="w-4 h-4 text-accent-blue mt-0.5 shrink-0" />
-              <p className="text-xs text-fg-muted leading-relaxed">
-                A chave é encriptada com Fernet AES antes de ser guardada. Nunca é exposta ao cliente.
-              </p>
-            </div>
-          </GlassCard>
+        <KeyField
+          label="API key"
+          value={nvidiaKey}
+          onChange={setNvidiaKey}
+          placeholder="nvapi-…"
+          configured={hasNvidiaKey}
+        />
 
-          <div className="flex gap-3">
-            <NeonButton onClick={handleSaveNvidia} className="flex-1" disabled={savingNvidia}>
-              {savingNvidia ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Guardar'}
-            </NeonButton>
-            {hasNvidiaKey && (
-              <NeonButton variant="ghost" onClick={handleClearNvidia} disabled={savingNvidia}>
-                Remover chave
-              </NeonButton>
-            )}
-          </div>
+        <a
+          href="https://build.nvidia.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 w-fit text-xs text-accent hover:opacity-80"
+        >
+          Obter chave em build.nvidia.com <ExternalLink className="w-3 h-3" />
+        </a>
 
-          {nvidiaFeedback && (
-            <p className={`text-xs text-center mt-3 ${nvidiaFeedback.type === 'ok' ? 'text-accent-green' : 'text-accent-red'}`}>
-              {nvidiaFeedback.type === 'ok' ? '✓' : '✗'} {nvidiaFeedback.msg}
-            </p>
+        <div className="flex gap-2">
+          <Button onClick={handleSaveNvidia} loading={savingNvidia} className="flex-1">
+            Guardar
+          </Button>
+          {hasNvidiaKey && (
+            <Button variant="danger" onClick={handleClearNvidia} disabled={savingNvidia}>
+              Remover chave
+            </Button>
           )}
-        </GlassCard>
-      </div>
-    </div>
+        </div>
+
+        {nvidiaFeedback && (
+          <p
+            className={`text-xs ${nvidiaFeedback.type === 'ok' ? 'text-accent-green' : 'text-accent-red'}`}
+          >
+            {nvidiaFeedback.type === 'ok' ? '✓' : '✗'} {nvidiaFeedback.msg}
+          </p>
+        )}
+      </Panel>
+    </PageBody>
   );
 }

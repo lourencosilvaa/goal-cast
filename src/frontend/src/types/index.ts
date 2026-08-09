@@ -80,7 +80,16 @@ export interface LeaguePredictions {
   matches: MatchPrediction[];
 }
 
+/**
+ * `league` is a domestic division with a football-data feed and a table.
+ * `competition` is a UEFA club competition — no feed, no table, history from
+ * the openfootball corpus. The distinction matters to any picker that feeds a
+ * league code to an endpoint expecting a division.
+ */
+export type LeagueKind = 'league' | 'competition';
+
 export interface League {
   code: string;
   name: string;
+  type: LeagueKind;
 }

@@ -94,7 +94,7 @@ function VenueSummary({
   record: TeamStats['overall'];
 }) {
   return (
-    <div className="px-3 py-2 rounded-xl bg-card-2 border border-line">
+    <div className="px-3 py-2 rounded-md bg-card-2 border border-line">
       <p className="text-[10px] text-fg-subtle truncate mb-1">{title}</p>
       <p className="text-sm font-semibold text-fg">
         {record.wins}-{record.draws}-{record.losses}
