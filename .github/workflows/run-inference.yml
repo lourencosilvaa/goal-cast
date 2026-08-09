@@ -33,6 +33,12 @@ jobs:
       HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      # Upcoming European fixtures. Without these every provider skips itself
+      # and the run discovers zero fixtures — which used to be silent. With
+      # european.required set it now fails instead, so both secrets must exist
+      # under Settings -> Secrets and variables -> Actions.
+      THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+      FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
 
     steps:
       - name: Checkout repository
@@ -53,6 +59,15 @@ jobs:
 
       - name: Install Playwright browsers
         run: uv run playwright install chromium --with-deps
+
+      # Inference must build ELO from exactly the same corpus training did. A
+      # fixture's elo_home is read from that team's last historical row, so
+      # serving ratings computed without the European results to a model
+      # trained with them is worse than never calibrating — the features stop
+      # meaning what the model learned, and nothing fails loudly. The cache is
+      # gitignored, so it has to be rebuilt here.
+      - name: Build European corpus
+        run: uv run python scripts/build_european_corpus.py
 
       - name: Run inference
         run: |

@@ -58,6 +58,15 @@ jobs:
             -H "X-Api-Key: $RETRAIN_API_KEY" \
             -d '{"retraining": true}' || echo "WARNING: could not set retrain flag"
 
+      # ── 3b. Build the European corpus ──────────────────────────────────────
+      # The cache is gitignored, so without this step it is simply absent here
+      # and training would run with no cross-league links at all — quietly
+      # replacing a calibrated model with an uncalibrated one. Failure is fatal
+      # on purpose; `european.required` makes training refuse to proceed too,
+      # so the two guards cover each other.
+      - name: Build European corpus
+        run: uv run python scripts/build_european_corpus.py
+
       # ── 4. Train model ─────────────────────────────────────────────────────
       # Sets the `retrained` step output (true/false). When there is no new
       # data (and no force), training is skipped and retrained=false, so the

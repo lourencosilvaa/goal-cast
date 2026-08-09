@@ -46,10 +46,62 @@ class TeamAlias:
 
 @dataclass(frozen=True)
 class TeamNameQuery:
-    """A scraped name to resolve within one competition."""
+    """A scraped name to resolve within one competition.
+
+    Domestic fixtures need nothing beyond ``league_code``: the competition a
+    name appeared in is also the pool of teams it can belong to. European
+    competitions break that identity — a Champions League tie arrives under
+    ``CL``, which holds no teams of its own — so two optional fields let the
+    caller say where to look without widening the search for everyone else.
+
+    Attributes:
+        league_code: The competition the name appeared in. Always what gets
+            reported to an admin, whatever was searched.
+        raw_name: The spelling to resolve.
+        candidate_league_codes: Leagues whose teams are candidates. Empty
+            means "just ``league_code``", preserving the domestic behaviour.
+            Supplying the leagues of the team's own country is what keeps a
+            cross-league search safe — without it, "AC Sparta Praha" is close
+            enough to "Sparta Rotterdam" to be accepted by mistake.
+        alias_scope: Where approved aliases for this name live, and where an
+            unresolved one gets queued. ``None`` means ``league_code``.
+            European competitions share one scope so a club approved once is
+            recognised in all of them.
+        alias_search_scopes: Scopes to *read* aliases from. Empty means "just
+            ``alias_scope``". Reading and writing are separate because a
+            European fixture carries no country: corpus names are approved
+            under ``EU-BEL``, but a fixture can only be queued under plain
+            ``EU``. Without a wider read, an already-approved club such as
+            "Union Saint-Gilloise" would come back unresolved and need
+            approving a second time.
+    """
 
     league_code: str
     raw_name: str
+    candidate_league_codes: tuple[str, ...] = ()
+    alias_scope: str | None = None
+    alias_search_scopes: tuple[str, ...] = ()
+
+    @property
+    def search_league_codes(self) -> tuple[str, ...]:
+        """The leagues whose teams are candidates for this name."""
+        return self.candidate_league_codes or (self.league_code,)
+
+    @property
+    def alias_key(self) -> str:
+        """The scope an unresolved name is queued under."""
+        return self.alias_scope or self.league_code
+
+    @property
+    def alias_search_keys(self) -> tuple[str, ...]:
+        """The scopes approved aliases are looked up in, in priority order."""
+        if not self.alias_search_scopes:
+            return (self.alias_key,)
+        # The write scope always wins, so a targeted approval cannot be
+        # shadowed by an inherited one from a broader scope.
+        ordered = [self.alias_key]
+        ordered.extend(s for s in self.alias_search_scopes if s != self.alias_key)
+        return tuple(ordered)
 
 
 @dataclass(frozen=True)
@@ -69,6 +121,17 @@ class Resolution:
     canonical: str | None = None
     status: str = STATUS_UNRESOLVED
     suggestions: list[str] = field(default_factory=list)
+    #: Where an approved alias for this name belongs. Usually the competition
+    #: itself, but a cross-league competition scopes by country instead, and
+    #: the review queue must store *this* rather than the competition — three
+    #: competitions share one club, and the competition alone loses the
+    #: country the review screen needs to narrow its suggestions.
+    alias_scope: str | None = None
+
+    @property
+    def scope(self) -> str:
+        """The key an approved alias for this name is stored under."""
+        return self.alias_scope or self.league_code
 
     @property
     def resolved(self) -> bool:
@@ -197,14 +260,47 @@ class TeamNameResolver:
         self._alias_repository = alias_repository
         self._alias_cache: dict[str, dict[str, str]] | None = None
 
+    def _candidates(self, query: TeamNameQuery) -> list[str]:
+        """Every canonical name the query may resolve to, de-duplicated.
+
+        A league code with no registry entry contributes nothing rather than
+        raising: an unknown country simply has no candidates, which is the
+        honest answer for a team from a league this project does not track.
+        """
+        names: list[str] = []
+        seen: set[str] = set()
+        for code in query.search_league_codes:
+            for name in self._canonical.get(code, []):
+                if name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        return names
+
+    def _alias_target(self, query: TeamNameQuery, key: str) -> str | None:
+        """The approved canonical name, searching each scope in priority order.
+
+        Multiple scopes exist because a club is approved once, from whichever
+        source first met it, but may be seen again from a source that knows
+        less about it — a corpus row carries the country, an API fixture does
+        not. Searching only the narrower scope would demand a second approval
+        for a club already reviewed.
+        """
+        aliases = self._aliases()
+        for scope in query.alias_search_keys:
+            target = aliases.get(scope, {}).get(key)
+            if target is not None:
+                return target
+        return None
+
     def resolve(self, query: TeamNameQuery) -> Resolution:
         """Resolve one scraped name within its competition."""
-        canonical_names = self._canonical.get(query.league_code, [])
+        canonical_names = self._candidates(query)
         key = self._normalise(query.raw_name)
         if not key or not canonical_names:
             return Resolution(
                 raw_name=query.raw_name,
                 league_code=query.league_code,
+                alias_scope=query.alias_key,
                 suggestions=self._suggest(query.raw_name, canonical_names),
             )
 
@@ -213,16 +309,18 @@ class TeamNameResolver:
                 return Resolution(
                     raw_name=query.raw_name,
                     league_code=query.league_code,
+                    alias_scope=query.alias_key,
                     canonical=name,
                     status=Resolution.STATUS_EXACT,
                 )
 
-        alias_target = self._aliases().get(query.league_code, {}).get(key)
+        alias_target = self._alias_target(query, key)
         # A stale alias must never inject a team the data set does not have.
         if alias_target is not None and alias_target in canonical_names:
             return Resolution(
                 raw_name=query.raw_name,
                 league_code=query.league_code,
+                alias_scope=query.alias_key,
                 canonical=alias_target,
                 status=Resolution.STATUS_ALIAS,
             )
@@ -230,6 +328,7 @@ class TeamNameResolver:
         return Resolution(
             raw_name=query.raw_name,
             league_code=query.league_code,
+            alias_scope=query.alias_key,
             suggestions=self._suggest(query.raw_name, canonical_names),
         )
 

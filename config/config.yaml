@@ -294,6 +294,185 @@ international:
       GOLD_CUP: "north-central-america/gold-cup"
       FRIENDLY: "world/friendly-international"
 
+# UEFA club competitions. These have no football-data.co.uk feed, so results
+# come from the public-domain openfootball project and are parsed into a
+# goals-only corpus (no shot/foul/corner columns exist for them).
+#
+# That corpus never reaches the ensemble's feature matrix — FeatureEngineer
+# would drop it anyway, the same reason EC is absent from data.leagues above.
+# It feeds ELO and Dixon-Coles, which need only goals, and which are exactly
+# the two components that cannot calibrate across leagues without real
+# cross-league matches: each domestic league is a near-closed pool, so its
+# ratings float independently and are not comparable with any other league's.
+#
+# Refresh with: uv run python scripts/build_european_corpus.py
+european:
+  enabled: true
+  # Refuse to train or predict without the corpus and the approved aliases,
+  # rather than quietly falling back to uncalibrated ratings.
+  #
+  # The quiet fallback is right for a *missing* feature and wrong for a broken
+  # one. A model trained on calibrated ELO and served uncalibrated ELO is worse
+  # than one never calibrated: the features stop meaning what it learned them
+  # to mean, and every prediction is subtly wrong with nothing in the logs.
+  # That is not hypothetical — it is what CI was doing, on both the retrain and
+  # the inference job, while reporting success.
+  #
+  # Set false to go back to degrade-quietly (e.g. running the pipeline before
+  # scripts/build_european_corpus.py has ever been run).
+  required: true
+  repo_url: "https://github.com/openfootball/champions-league.git"
+  checkout_path: "datasets/openfootball/champions-league"
+  # Competition code -> openfootball file stem. Upstream coverage is uneven:
+  # Champions League runs from 2011-12, Europa League only from 2020-21 and
+  # Conference League from 2021-22. Missing seasons are skipped silently.
+  competitions:
+    CL: "cl"
+    EL: "el"
+    UECL: "conf"
+  # Shown in the UI. Separate from `competitions` so a display string is never
+  # also a lookup key.
+  competition_names:
+    CL: "Champions League"
+    EL: "Europa League"
+    UECL: "Conference League"
+  # Qualifying rounds, kept separate. They add many cross-league links but
+  # also teams from leagues that are not tracked at all, which enter at the
+  # default rating. Whether they help is measured in Phase 3, not assumed.
+  # Upstream only ships these from 2024-25.
+  qualifier_competitions:
+    CLQ: "clq"
+    ELQ: "elq"
+    UECLQ: "confq"
+  # Mirrors data.seasons so the same time-decay half-life applies to European
+  # and domestic history alike.
+  seasons:
+    - "2627"
+    - "2526"
+    - "2425"
+    - "2324"
+    - "2223"
+    - "2122"
+    - "2021"
+    - "1920"
+    - "1819"
+    - "1718"
+  cache_path: "datasets/european/results.csv"
+  qualifiers_cache_path: "datasets/european/results_with_qualifiers.csv"
+  # openfootball country code -> the leagues of that country in data.leagues.
+  # Name matching is scoped to these, which is what makes it safe across
+  # competitions: "AC Sparta Praha (CZE)" finds no Czech league here and stays
+  # honestly unresolved, rather than being offered "Sparta Rotterdam".
+  country_leagues:
+    ENG: ["E0", "E1", "E2", "E3"]
+    SCO: ["SC0", "SC1", "SC2", "SC3"]
+    ESP: ["SP1", "SP2"]
+    GER: ["D1", "D2"]
+    ITA: ["I1", "I2"]
+    FRA: ["F1", "F2"]
+    NED: ["N1"]
+    BEL: ["B1"]
+    POR: ["P1"]
+    TUR: ["T1"]
+    GRE: ["G1"]
+    # Monaco is its own country to openfootball but plays in the French
+    # league, so its clubs live in the Ligue 1/2 registry.
+    MCO: ["F1", "F2"]
+  # One shared alias scope: a club approved once is recognised in every UEFA
+  # competition, instead of needing approval per competition.
+  alias_scope: "EU"
+  display_names_path: "config/team_display_names.yaml"
+
+  # ── Upcoming-fixture sources ───────────────────────────────────────────
+  # openfootball supplies history, not fixtures, so discovering the next
+  # round needs an API. Tried in `provider_order`, first non-empty wins —
+  # which makes the order a correctness property, not a preference.
+  #
+  # Only the *names* of the environment variables appear here. Keys never do.
+  lookahead_days: 14
+  # How a discovered fixture is predicted. NOT the ensemble: it is trained only
+  # on domestic rows (European results carry no shot/foul/corner columns, so
+  # they never enter its training matrix), and has no feature that would tell
+  # it a cross-league fixture had arrived. Dixon-Coles and ELO were both made
+  # comparable across leagues by the corpus calibration, so they are used
+  # instead — and every prediction records that it was them.
+  prediction:
+    enabled: true
+    # Zero, and measured rather than assumed. Swept over 1,301 held-out
+    # European matches (docs §14): the log-loss profile rises monotonically
+    # with this weight at every draw rate, so Dixon-Coles never improves a
+    # cross-league 1X2. At the previously configured 0.6 it cost +0.0118 nats
+    # against ELO alone, 95% interval [+0.0042, +0.0199].
+    #
+    # Not removed, because the corpus grows every season. Re-measure with
+    # scripts/tune_european_weight.py before changing it back.
+    dixon_coles_weight: 0.0
+    # Below this, a team's fitted parameters are noise and the fixture is
+    # refused rather than guessed.
+    min_matches_per_team: 10
+    # ELO gives an expected score with draws folded in, so the draw share is
+    # stated rather than derived — ELO does not model draws at all. With the
+    # weight above at zero this is the only free parameter left, so it was
+    # measured in the same sweep instead of staying at the hand-picked 0.25.
+    elo_draw_rate: 0.22
+    # Read only by scripts/tune_european_weight.py, never at prediction time.
+    # The two values above were set by hand — 0.6 by analogy with the domestic
+    # blend, 0.25 as a rough observed rate — and this is what measures them.
+    tuning:
+      # 0 = ELO only, 1 = Dixon-Coles only.
+      blend_weight_grid: [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4,
+                          0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85,
+                          0.9, 0.95, 1.0]
+      # Swept alongside the weight because they interact: an ELO leg carving
+      # the draw out wrongly scores worse than it should and drags the weight
+      # toward Dixon-Coles.
+      draw_rate_grid: [0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32]
+      # One rolling-origin fold each. Only about half the corpus has both
+      # teams in a tracked league, so a single season is too thin to separate
+      # neighbouring weights.
+      holdout_seasons: 5
+      # A December tie belongs to the season that began that summer.
+      season_start_month: 7
+      min_holdout_matches: 30
+      bootstrap_samples: 2000
+      bootstrap_seed: 42
+      confidence_level: 0.95
+  provider_order:
+    - odds_api
+    - football_data
+  providers:
+    # Primary. Its /events endpoint costs ZERO credits (verified against the
+    # live API: x-requests-used stayed at 1), and it carries the odds needed
+    # downstream anyway. It lists what bookmakers are pricing, so the horizon
+    # is short and a competition that has not kicked off returns nothing.
+    odds_api:
+      enabled: true
+      base_url: "https://api.the-odds-api.com/v4"
+      api_key_env: "THE_ODDS_API_KEY"
+      timeout: 15
+      competitions:
+        CL: "soccer_uefa_champs_league"
+        CLQ: "soccer_uefa_champs_league_qualification"
+        EL: "soccer_uefa_europa_league"
+        UECL: "soccer_uefa_europa_conference_league"
+    # Dormant fallback. The free tier covers the Champions League only —
+    # Europa returns 403 and Conference 404, both recorded as "not covered"
+    # and skipped thereafter rather than retried. Its schedule also lags a
+    # season, so CL answers empty until 2026-27 loads. Kept because empty is
+    # temporary here, unlike a plan restriction.
+    football_data:
+      enabled: true
+      base_url: "https://api.football-data.org/v4"
+      api_key_env: "FOOTBALL_DATA_API_KEY"
+      timeout: 15
+      competitions:
+        CL: "CL"
+    # NOT configured as a fixture source: API-Football's free plan is capped
+    # at seasons 2022-2024 ("Free plans do not have access to this season"),
+    # so it can never return an upcoming fixture. It is used only by
+    # scripts/verify_corpus_against_api_football.py, over the seasons it does
+    # cover.
+
 output:
   reports_dir: "output/reports"
   models_dir: "output/models"

@@ -18,6 +18,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -26,6 +27,11 @@ from src.analysis.match_stats import MatchStatsCalculator
 from src.analysis.value_detector import ValueDetector
 from src.models.data_cleaner import DataCleaner
 from src.models.data_loader import FootballDataLoader
+from src.corpus.european_corpus import load_european_corpus
+from src.models.cross_competition import (
+    CrossCompetitionCorpus,
+    CrossCompetitionEloBuilder,
+)
 from src.models.elo import FootballELO
 from src.models.feature_engineer import FeatureEngineer
 from src.models.predictor import MatchPrediction, MatchPredictor
@@ -39,21 +45,46 @@ from src.scrapers.base_scraper import ScrapedOdds
 
 import pandas as pd
 
-
 # ---------------------------------------------------------------------------
 # Prediction logic (mirrors PredictionService._compute_predictions)
 # ---------------------------------------------------------------------------
 
 
-def _load_league_featured_data(config, league_code: str) -> pd.DataFrame:
+def _load_all_featured_data(config) -> tuple[pd.DataFrame, Any]:
+    """Every tracked league, feature-engineered, with ELO walked once.
+
+    The ELO walk must span **every** league, exactly as training does, and only
+    then may the result be narrowed to one league. Walking a single league in
+    isolation gives a different answer, and the difference is not small:
+    measured on real data, Arsenal came out 27.8 points lower.
+
+    That equivalence used to hold. Domestic leagues are disjoint pools, so a
+    per-league walk was bit-identical to a combined one — the tests still pin
+    that. The European corpus deliberately links the pools, which is the point
+    of the calibration, and the same linkage is what breaks the shortcut: a
+    team's European opponent carries a rating built from *its* domestic
+    history, so a walk missing that league starts the opponent at the default
+    and mis-scores the tie for both sides.
+
+    Loaded once for the whole run rather than per league, since every league
+    now needs all the others anyway.
+
+    Returns the featured frame **and the fitted ELO instance**. The instance is
+    the only place the calibrated ratings survive: ``build`` returns domestic
+    rows, so a European result updates the ratings without appearing in the
+    output, and recomputing ELO from that output would silently discard every
+    one of them.
+    """
     loader = FootballDataLoader(config.data, hf_config=config.huggingface)
+    elo = FootballELO(config.features.elo)
     frames = []
-    for season in config.data.seasons:
-        df = loader.load_season(league_code, season)
-        if not df.empty:
-            frames.append(df)
+    for league_code in config.data.leagues:
+        for season in config.data.seasons:
+            df = loader.load_season(league_code, season)
+            if not df.empty:
+                frames.append(df)
     if not frames:
-        return pd.DataFrame()
+        return pd.DataFrame(), elo
 
     data = pd.concat(frames, ignore_index=True)
     del frames
@@ -65,11 +96,128 @@ def _load_league_featured_data(config, league_code: str) -> pd.DataFrame:
     data = engineer.build_all_features(data)
 
     if data.empty:
-        return data
+        return data, elo
 
-    elo = FootballELO(config.features.elo)
-    data = elo.compute_elo_features(data)
-    return data
+    # Same corpus, same builder and now the same domestic pool as training. A
+    # fixture's elo_home is read from that team's last historical row, so
+    # reproducing it means replaying the identical chronological walk.
+    european = load_european_corpus(config, verbose=False)
+    built = CrossCompetitionEloBuilder(elo).build(
+        CrossCompetitionCorpus(domestic=data, supplementary=european)
+    )
+    return built, elo
+
+
+def _for_league(featured_data: pd.DataFrame, league_code: str) -> pd.DataFrame:
+    """One league's rows, taken *after* the cross-league ELO walk."""
+    if featured_data.empty:
+        return featured_data
+    column = "League" if "League" in featured_data.columns else "Div"
+    return featured_data[featured_data[column] == league_code]
+
+
+def _match_counts(featured_data: pd.DataFrame) -> dict[str, int]:
+    """How many matches each team appears in, home or away.
+
+    The gate behind refusing a prediction: a Dixon-Coles parameter fitted on
+    three matches is noise wearing the shape of knowledge.
+    """
+    if featured_data.empty:
+        return {}
+    appearances = pd.concat(
+        [featured_data["HomeTeam"], featured_data["AwayTeam"]], ignore_index=True
+    )
+    return appearances.value_counts().to_dict()
+
+
+def _run_european(
+    config, poisson_model, all_featured_data: pd.DataFrame, elo: Any
+) -> int:
+    """Discover and predict UEFA fixtures. Returns prediction sets uploaded.
+
+    Predicted by Dixon-Coles and ELO rather than the ensemble, and labelled as
+    such — see :mod:`src.models.european_predictor` for why the ensemble is
+    not valid here.
+    """
+    european = getattr(config, "european", None)
+    if european is None or not european.enabled or not european.prediction.enabled:
+        return 0
+    if poisson_model is None or all_featured_data.empty:
+        print("\nEuropean fixtures skipped: no Poisson model or no history loaded.")
+        return 0
+
+    from src.models.european_predictor import EuropeanMatchPredictor
+    from src.scrapers.european_fixtures_fetcher import (
+        EuropeanFixturesFetcher,
+        build_provider_chain,
+    )
+    from src.teams.registry import load_team_registry
+    from src.teams.resolver import StaticTeamAliasRepository, TeamNameResolver
+
+    print(f"\n{'='*60}")
+    print("European competitions")
+
+    resolver = TeamNameResolver(
+        load_team_registry(config.teams.historical_registry_path),
+        StaticTeamAliasRepository(config.teams.aliases.seed_path),
+        config.teams.aliases,
+    )
+    chain = build_provider_chain(european)
+    fixtures = EuropeanFixturesFetcher(european, chain, resolver).fetch()
+    if not fixtures:
+        print("  No upcoming European fixtures found.")
+        return 0
+
+    # The ELO instance from the cross-league walk, passed in rather than
+    # rebuilt. Recomputing it from `all_featured_data` would look equivalent
+    # and silently revert every rating to its uncalibrated value, because that
+    # frame holds domestic rows only — the European results that link the
+    # leagues update the ratings without ever appearing in it.
+    predictor = EuropeanMatchPredictor(
+        dixon_coles=poisson_model,
+        elo=elo,
+        config=european.prediction,
+        match_counts=_match_counts(all_featured_data),
+    )
+
+    by_competition_date: dict[tuple[str, str], list] = {}
+    for resolved in fixtures:
+        if not resolved.is_resolved:
+            print(
+                f"  SKIP {resolved.fixture.home_team} vs "
+                f"{resolved.fixture.away_team}: unresolved "
+                f"({', '.join(resolved.unresolved_names)})"
+            )
+            continue
+        reason = predictor.refusal_reason(resolved.home_team, resolved.away_team)
+        if reason is not None:
+            print(f"  SKIP {resolved.home_team} vs {resolved.away_team}: {reason}")
+            continue
+        prediction = predictor.predict(resolved.home_team, resolved.away_team)
+        match_date = resolved.fixture.kickoff.strftime("%d/%m/%Y")
+        key = (resolved.fixture.competition, match_date)
+        by_competition_date.setdefault(key, []).append(prediction)
+        print(
+            f"  {resolved.home_team} vs {resolved.away_team}: "
+            f"{prediction.predicted_outcome} ({prediction.confidence:.1%})"
+        )
+
+    uploaded = 0
+    for (competition, match_date), predictions in by_competition_date.items():
+        payload = {
+            "league_code": competition,
+            "league_name": european.competition_names.get(competition, competition),
+            "match_date": match_date,
+            # Read off the predictor, not a constant: the label follows the
+            # configured weight, and a payload naming a model that did not
+            # produce these numbers is the thing the field exists to prevent.
+            "model": predictor.model_name,
+            "fixtures": [p.to_dict() for p in predictions],
+            "generated_at": datetime.now().isoformat(),
+        }
+        _upload_to_supabase(competition, match_date, payload)
+        uploaded += 1
+    return uploaded
 
 
 def _predict_from_odds(fixture: Fixture) -> MatchPrediction:
@@ -121,28 +269,40 @@ def _predict_fixture(fixture, featured_data, predictor):
     feature_row: dict = {}
     for feat in predictor.feature_names:
         if feat.startswith("home_"):
-            s = feat[len("home_"):]
-            feature_row[feat] = _get(last_home_row, home_was_home, f"home_{s}", f"away_{s}")
+            s = feat[len("home_") :]
+            feature_row[feat] = _get(
+                last_home_row, home_was_home, f"home_{s}", f"away_{s}"
+            )
         elif feat.startswith("away_"):
-            s = feat[len("away_"):]
-            feature_row[feat] = _get(last_away_row, away_was_away, f"away_{s}", f"home_{s}")
+            s = feat[len("away_") :]
+            feature_row[feat] = _get(
+                last_away_row, away_was_away, f"away_{s}", f"home_{s}"
+            )
         elif feat.startswith("diff_"):
-            s = feat[len("diff_"):]
+            s = feat[len("diff_") :]
             h = _get(last_home_row, home_was_home, f"home_{s}", f"away_{s}")
             a = _get(last_away_row, away_was_away, f"away_{s}", f"home_{s}")
             feature_row[feat] = h - a
         elif feat == "elo_home":
-            feature_row[feat] = _get(last_home_row, home_was_home, "elo_home", "elo_away")
+            feature_row[feat] = _get(
+                last_home_row, home_was_home, "elo_home", "elo_away"
+            )
         elif feat == "elo_away":
-            feature_row[feat] = _get(last_away_row, away_was_away, "elo_away", "elo_home")
+            feature_row[feat] = _get(
+                last_away_row, away_was_away, "elo_away", "elo_home"
+            )
         elif feat == "elo_diff":
             h = _get(last_home_row, home_was_home, "elo_home", "elo_away")
             a = _get(last_away_row, away_was_away, "elo_away", "elo_home")
             feature_row[feat] = h - a
         elif feat == "elo_expected_home":
-            feature_row[feat] = _get(last_home_row, home_was_home, "elo_expected_home", "elo_expected_away")
+            feature_row[feat] = _get(
+                last_home_row, home_was_home, "elo_expected_home", "elo_expected_away"
+            )
         elif feat == "elo_expected_away":
-            feature_row[feat] = _get(last_away_row, away_was_away, "elo_expected_away", "elo_expected_home")
+            feature_row[feat] = _get(
+                last_away_row, away_was_away, "elo_expected_away", "elo_expected_home"
+            )
         elif feat == "xG_diff":
             h = _get(last_home_row, home_was_home, "home_xG_rolling", "away_xG_rolling")
             a = _get(last_away_row, away_was_away, "away_xG_rolling", "home_xG_rolling")
@@ -175,8 +335,14 @@ def _predict_fixture(fixture, featured_data, predictor):
             feature_row[feat] = 0
         elif feat.startswith("h2h_"):
             h2h_rows = featured_data[
-                ((featured_data["HomeTeam"] == home) & (featured_data["AwayTeam"] == away))
-                | ((featured_data["HomeTeam"] == away) & (featured_data["AwayTeam"] == home))
+                (
+                    (featured_data["HomeTeam"] == home)
+                    & (featured_data["AwayTeam"] == away)
+                )
+                | (
+                    (featured_data["HomeTeam"] == away)
+                    & (featured_data["AwayTeam"] == home)
+                )
             ]
             if not h2h_rows.empty:
                 h2h_last = h2h_rows.iloc[-1]
@@ -221,7 +387,8 @@ def _build_response_payload(
     matches = []
     for fixture, pred, stats in zip(fixtures, predictions, match_stats):
         match_vbs = [
-            vb for vb in value_bets
+            vb
+            for vb in value_bets
             if vb.home_team == pred.home_team and vb.away_team == pred.away_team
         ]
 
@@ -340,9 +507,17 @@ def _upload_to_supabase(league_code: str, match_date: str, payload: dict) -> Non
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run ML inference and upload to Supabase")
-    parser.add_argument("--date", default=None, help="Target date DD/MM/YYYY (default: all fixture dates)")
-    parser.add_argument("--leagues", default=None, help="Comma-separated league codes (default: all)")
+    parser = argparse.ArgumentParser(
+        description="Run ML inference and upload to Supabase"
+    )
+    parser.add_argument(
+        "--date",
+        default=None,
+        help="Target date DD/MM/YYYY (default: all fixture dates)",
+    )
+    parser.add_argument(
+        "--leagues", default=None, help="Comma-separated league codes (default: all)"
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -362,7 +537,9 @@ def main() -> None:
         today = datetime.now().strftime("%d/%m/%Y")
         if today not in target_dates:
             target_dates.append(today)
-        target_dates = sorted(target_dates, key=lambda d: datetime.strptime(d, "%d/%m/%Y"))
+        target_dates = sorted(
+            target_dates, key=lambda d: datetime.strptime(d, "%d/%m/%Y")
+        )
 
     if not target_dates:
         print("No fixture dates found.")
@@ -407,16 +584,23 @@ def main() -> None:
 
     total_uploaded = 0
 
+    # Loaded once for the whole run. ELO has to be walked across every league
+    # to match training, so there is nothing left to gain from loading them
+    # one at a time — and doing so would repeat the full walk per league.
+    all_featured_data = pd.DataFrame()
+    fitted_elo = FootballELO(config.features.elo)
+    if predictor:
+        print("\nLoading historical data for all leagues (ELO spans them all)…")
+        all_featured_data, fitted_elo = _load_all_featured_data(config)
+        print(f"Historical data: {len(all_featured_data)} rows")
+
     for league_code in league_codes:
         league_name = config.data.leagues.get(league_code, league_code)
         print(f"\n{'='*60}")
         print(f"League: {league_name} ({league_code})")
 
-        # Load featured data ONCE per league
-        featured_data = pd.DataFrame()
+        featured_data = _for_league(all_featured_data, league_code)
         if predictor:
-            print(f"  Loading historical data...")
-            featured_data = _load_league_featured_data(config, league_code)
             print(f"  Historical data: {len(featured_data)} rows")
 
         for target_date in target_dates:
@@ -450,13 +634,15 @@ def main() -> None:
                     match_date=fixture.date,
                     url="",
                 )
-                odds_list.append(AggregatedOdds(
-                    home_team=fixture.home_team,
-                    away_team=fixture.away_team,
-                    league=fixture.league,
-                    match_date=fixture.date,
-                    sources=[scraped],
-                ))
+                odds_list.append(
+                    AggregatedOdds(
+                        home_team=fixture.home_team,
+                        away_team=fixture.away_team,
+                        league=fixture.league,
+                        match_date=fixture.date,
+                        sources=[scraped],
+                    )
+                )
 
             # Match stats
             match_stats = []
@@ -481,9 +667,14 @@ def main() -> None:
             _upload_to_supabase(league_code, target_date, payload)
             total_uploaded += 1
 
-        # Free memory between leagues
-        del featured_data
         gc.collect()
+
+    total_uploaded += _run_european(
+        config, poisson_model, all_featured_data, fitted_elo
+    )
+
+    del all_featured_data
+    gc.collect()
 
     print(f"\nDone. Uploaded {total_uploaded} prediction sets to Supabase.")
 

@@ -26,7 +26,11 @@ from src.analysis.match_stats import MatchStats, MatchStatsCalculator
 from src.analysis.value_detector import ValueBet, ValueDetector
 from src.models.predictor import MatchPrediction
 from src.scrapers.base_scraper import ScrapedOdds
-from src.scrapers.fixtures_fetcher import Fixture, fetch_fixtures, fetch_fixtures_for_matches
+from src.scrapers.fixtures_fetcher import (
+    Fixture,
+    fetch_fixtures,
+    fetch_fixtures_for_matches,
+)
 from src.scrapers.odds_aggregator import AggregatedOdds
 from src.visualization.html_report import generate_html_report
 
@@ -74,25 +78,35 @@ def _predict_with_model(fixture: Fixture, model_dir: Path, config) -> MatchPredi
     """Predict using the trained ML ensemble model."""
     from src.models.data_cleaner import DataCleaner
     from src.models.data_loader import FootballDataLoader
+    from src.corpus.european_corpus import load_european_corpus
+    from src.models.cross_competition import (
+        CrossCompetitionCorpus,
+        CrossCompetitionEloBuilder,
+    )
     from src.models.elo import FootballELO
     from src.models.feature_engineer import FeatureEngineer
     from src.models.predictor import MatchPredictor
 
-    # Load historical data for the league
+    # Every league, not just this fixture's. ELO has to be walked over the
+    # same pool training used: the European corpus links the domestic pools,
+    # so a single-league walk gives a team a different rating from the one the
+    # model was fitted against (measured at up to 27.8 points).
     league_code = fixture.division
     loader = FootballDataLoader(config.data)
 
     frames = []
-    for season in config.data.seasons:
-        df = loader.load_season(league_code, season)
-        if not df.empty:
-            frames.append(df)
+    for code in config.data.leagues:
+        for season in config.data.seasons:
+            df = loader.load_season(code, season)
+            if not df.empty:
+                frames.append(df)
 
     if not frames:
         print(f"    No historical data for {fixture.league}, falling back to odds")
         return _predict_from_odds(fixture)
 
     import pandas as pd
+
     data = pd.concat(frames, ignore_index=True)
 
     # Clean + feature engineer (same pipeline as training)
@@ -107,8 +121,13 @@ def _predict_with_model(fixture: Fixture, model_dir: Path, config) -> MatchPredi
         return _predict_from_odds(fixture)
 
     # Add ELO
+    # Same corpus and builder as training, so the ELO features a value bet is
+    # judged on mean what the model learned them to mean.
+    european = load_european_corpus(config, verbose=False)
     elo = FootballELO(config.features.elo)
-    featured_data = elo.compute_elo_features(featured_data)
+    featured_data = CrossCompetitionEloBuilder(elo).build(
+        CrossCompetitionCorpus(domestic=featured_data, supplementary=european)
+    )
 
     # Get latest stats for each team by finding last row where they played
     home = fixture.home_team
@@ -150,17 +169,17 @@ def _predict_with_model(fixture: Fixture, model_dir: Path, config) -> MatchPredi
     feature_row = {}
     for feat in predictor.feature_names:
         if feat.startswith("home_"):
-            suffix = feat[len("home_"):]
+            suffix = feat[len("home_") :]
             feature_row[feat] = _get_team_val(
                 last_home_row, home_was_home, f"home_{suffix}", f"away_{suffix}"
             )
         elif feat.startswith("away_"):
-            suffix = feat[len("away_"):]
+            suffix = feat[len("away_") :]
             feature_row[feat] = _get_team_val(
                 last_away_row, away_was_away, f"away_{suffix}", f"home_{suffix}"
             )
         elif feat.startswith("diff_"):
-            suffix = feat[len("diff_"):]
+            suffix = feat[len("diff_") :]
             h_val = _get_team_val(
                 last_home_row, home_was_home, f"home_{suffix}", f"away_{suffix}"
             )
@@ -177,12 +196,8 @@ def _predict_with_model(fixture: Fixture, model_dir: Path, config) -> MatchPredi
                 last_away_row, away_was_away, "elo_away", "elo_home"
             )
         elif feat == "elo_diff":
-            h_elo = _get_team_val(
-                last_home_row, home_was_home, "elo_home", "elo_away"
-            )
-            a_elo = _get_team_val(
-                last_away_row, away_was_away, "elo_away", "elo_home"
-            )
+            h_elo = _get_team_val(last_home_row, home_was_home, "elo_home", "elo_away")
+            a_elo = _get_team_val(last_away_row, away_was_away, "elo_away", "elo_home")
             feature_row[feat] = h_elo - a_elo
         elif feat == "elo_expected_home":
             feature_row[feat] = _get_team_val(
@@ -257,8 +272,14 @@ def _predict_with_model(fixture: Fixture, model_dir: Path, config) -> MatchPredi
             # at the last row where both teams met instead.
             # For now, find the last row where BOTH teams played each other.
             h2h_rows = featured_data[
-                ((featured_data["HomeTeam"] == home) & (featured_data["AwayTeam"] == away))
-                | ((featured_data["HomeTeam"] == away) & (featured_data["AwayTeam"] == home))
+                (
+                    (featured_data["HomeTeam"] == home)
+                    & (featured_data["AwayTeam"] == away)
+                )
+                | (
+                    (featured_data["HomeTeam"] == away)
+                    & (featured_data["AwayTeam"] == home)
+                )
             ]
             if not h2h_rows.empty:
                 h2h_last = h2h_rows.iloc[-1]
@@ -281,12 +302,12 @@ def _predict_with_model(fixture: Fixture, model_dir: Path, config) -> MatchPredi
         elif feat.startswith("home_") or feat.startswith("away_"):
             # Catch-all for any home_/away_ prefixed features not handled above
             if feat.startswith("home_"):
-                suffix = feat[len("home_"):]
+                suffix = feat[len("home_") :]
                 feature_row[feat] = _get_team_val(
                     last_home_row, home_was_home, f"home_{suffix}", f"away_{suffix}"
                 )
             else:
-                suffix = feat[len("away_"):]
+                suffix = feat[len("away_") :]
                 feature_row[feat] = _get_team_val(
                     last_away_row, away_was_away, f"away_{suffix}", f"home_{suffix}"
                 )
@@ -375,17 +396,19 @@ def create_manual_fixtures(
         else:
             h, d, a = 0.0, 0.0, 0.0
 
-        fixtures.append(Fixture(
-            division=league_code,
-            league=league_name,
-            date=today,
-            time="",
-            home_team=home,
-            away_team=away,
-            b365_home=h,
-            b365_draw=d,
-            b365_away=a,
-        ))
+        fixtures.append(
+            Fixture(
+                division=league_code,
+                league=league_name,
+                date=today,
+                time="",
+                home_team=home,
+                away_team=away,
+                b365_home=h,
+                b365_draw=d,
+                b365_away=a,
+            )
+        )
 
     return fixtures
 
@@ -398,34 +421,40 @@ def main() -> None:
         "--config", default="config/config.yaml", help="Path to config file"
     )
     parser.add_argument(
-        "--matches", default=None,
+        "--matches",
+        default=None,
         help='Specific matches, comma-separated: "Home vs Away, Home2 vs Away2"',
     )
     parser.add_argument(
-        "--league", default=None,
+        "--league",
+        default=None,
         help="Division code(s), comma-separated (e.g. E0,D1)",
     )
     parser.add_argument(
-        "--date", default=None,
+        "--date",
+        default=None,
         help="Date in DD/MM/YYYY format. Defaults to today.",
     )
+    parser.add_argument("--output", default=None, help="Output report filename")
     parser.add_argument(
-        "--output", default=None, help="Output report filename"
-    )
-    parser.add_argument(
-        "--manual", default=None,
+        "--manual",
+        default=None,
         help='Manual matches (cup games etc): "Home vs Away, Home2 vs Away2"',
     )
     parser.add_argument(
-        "--manual-league", default="SP1",
+        "--manual-league",
+        default="SP1",
         help="League code for manual matches (for historical data lookup). Default: SP1",
     )
     parser.add_argument(
-        "--manual-odds", default=None,
+        "--manual-odds",
+        default=None,
         help='Odds for manual matches: "H/D/A" or "H/D/A, H/D/A" (comma-separated per match)',
     )
     parser.add_argument(
-        "--export", default=None, choices=["csv", "excel"],
+        "--export",
+        default=None,
+        choices=["csv", "excel"],
         help="Export predictions to file: csv or excel",
     )
     args = parser.parse_args()
@@ -447,7 +476,9 @@ def main() -> None:
         match_list = parse_matches(args.matches)
         csv_fixtures = fetch_fixtures_for_matches(match_list, target_date=args.date)
         fixtures.extend(csv_fixtures)
-        print(f"Requested {len(match_list)} matches from CSV, found {len(csv_fixtures)}")
+        print(
+            f"Requested {len(match_list)} matches from CSV, found {len(csv_fixtures)}"
+        )
     elif args.league:
         leagues = [l.strip() for l in args.league.split(",")]
         csv_fixtures = fetch_fixtures(target_date=args.date, leagues=leagues)
@@ -504,15 +535,29 @@ def main() -> None:
 
     for pred, fixture, stats in zip(predictions, fixtures, match_stats_list):
         bk_probs = fixture.implied_probabilities()
-        print(f"\n  {fixture.time:5s}  {pred.home_team} vs {pred.away_team} ({fixture.league})")
-        print(f"  {'':5s}  B365 Odds: {fixture.b365_home:.2f} / {fixture.b365_draw:.2f} / {fixture.b365_away:.2f}")
-        print(f"  {'':5s}  B365 Implied:  H={bk_probs['home']:.1%}  D={bk_probs['draw']:.1%}  A={bk_probs['away']:.1%}")
-        print(f"  {'':5s}  ML Predicted:  H={pred.home_win_prob:.1%}  D={pred.draw_prob:.1%}  A={pred.away_win_prob:.1%}")
-        print(f"  {'':5s}  Prediction: {pred.predicted_outcome} ({pred.confidence:.1%})")
+        print(
+            f"\n  {fixture.time:5s}  {pred.home_team} vs {pred.away_team} ({fixture.league})"
+        )
+        print(
+            f"  {'':5s}  B365 Odds: {fixture.b365_home:.2f} / {fixture.b365_draw:.2f} / {fixture.b365_away:.2f}"
+        )
+        print(
+            f"  {'':5s}  B365 Implied:  H={bk_probs['home']:.1%}  D={bk_probs['draw']:.1%}  A={bk_probs['away']:.1%}"
+        )
+        print(
+            f"  {'':5s}  ML Predicted:  H={pred.home_win_prob:.1%}  D={pred.draw_prob:.1%}  A={pred.away_win_prob:.1%}"
+        )
+        print(
+            f"  {'':5s}  Prediction: {pred.predicted_outcome} ({pred.confidence:.1%})"
+        )
 
         if stats:
-            print(f"  {'':5s}  xG: {stats.home_xg:.1f} - {stats.away_xg:.1f} (total: {stats.total_xg:.1f})")
-            print(f"  {'':5s}  Over 2.5: {stats.over25_prob:.0%} | BTTS: {stats.btts_yes_prob:.0%}")
+            print(
+                f"  {'':5s}  xG: {stats.home_xg:.1f} - {stats.away_xg:.1f} (total: {stats.total_xg:.1f})"
+            )
+            print(
+                f"  {'':5s}  Over 2.5: {stats.over25_prob:.0%} | BTTS: {stats.btts_yes_prob:.0%}"
+            )
             top = stats.top_scorelines[:3]
             scores_str = ", ".join(f"{h}-{a} ({p:.0%})" for h, a, p in top)
             print(f"  {'':5s}  Top scores: {scores_str}")
@@ -521,11 +566,14 @@ def main() -> None:
         min_h = compute_min_value_odds(pred.home_win_prob)
         min_d = compute_min_value_odds(pred.draw_prob)
         min_a = compute_min_value_odds(pred.away_win_prob)
-        print(f"  {'':5s}  Look for odds ≥  H: {min_h:.2f}  D: {min_d:.2f}  A: {min_a:.2f}")
+        print(
+            f"  {'':5s}  Look for odds ≥  H: {min_h:.2f}  D: {min_d:.2f}  A: {min_a:.2f}"
+        )
 
         # Show specific value bets for this match
         match_vbs = [
-            vb for vb in value_bets
+            vb
+            for vb in value_bets
             if vb.home_team == pred.home_team and vb.away_team == pred.away_team
         ]
         if match_vbs:
@@ -543,9 +591,7 @@ def main() -> None:
         print("  VALUE BETS SUMMARY (sorted by edge)")
         print("-" * 70)
         for vb in value_bets:
-            print(
-                f"  {vb.home_team} vs {vb.away_team} → {vb.outcome}"
-            )
+            print(f"  {vb.home_team} vs {vb.away_team} → {vb.outcome}")
             print(
                 f"    ML: {vb.ml_probability:.1%} vs B365: {vb.bookmaker_probability:.1%} | "
                 f"Edge: {vb.edge:.1%} | Best odds: {vb.best_odds:.2f} | "
@@ -578,21 +624,27 @@ def main() -> None:
     if args.export:
         from datetime import date
         from src.analysis.export_service import ExportService
+
         export_service = ExportService()
         exports_dir = Path(config.output.exports_dir)
         exports_dir.mkdir(parents=True, exist_ok=True)
         timestamp = date.today().strftime("%Y-%m-%d")
         if args.export == "csv":
             out_path = exports_dir / f"predictions_{timestamp}.csv"
-            export_service.to_csv(predictions, fixtures, value_bets, output_path=out_path)
+            export_service.to_csv(
+                predictions, fixtures, value_bets, output_path=out_path
+            )
             print(f"CSV export saved to {out_path}")
         elif args.export == "excel":
             out_path = exports_dir / f"predictions_{timestamp}.xlsx"
-            export_service.to_excel(predictions, fixtures, value_bets, output_path=out_path)
+            export_service.to_excel(
+                predictions, fixtures, value_bets, output_path=out_path
+            )
             print(f"Excel export saved to {out_path}")
 
     # Open in browser
     import webbrowser
+
     webbrowser.open(f"file://{html_path.resolve()}")
 
 

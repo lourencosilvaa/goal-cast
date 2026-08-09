@@ -231,3 +231,61 @@ class TestMain:
         main()
         assert "WARNING" in capsys.readouterr().out
         assert not registry.exists()
+
+
+class TestAllSeasonsMode:
+    """Alias resolution needs every team the corpus knows, not this season's.
+
+    The default registry answers "who plays now", which is right for a fixture
+    picker and wrong for matching historical European results: Vitesse has
+    seven Eredivisie seasons here and Sivasspor eight in the Süper Lig, but
+    both were relegated, so neither appears in the newest season file and
+    neither can be matched to its own history.
+    """
+
+    def _cache(self, tmp_path):
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        (cache / "2324_N1.csv").write_text(
+            "HomeTeam,AwayTeam\nVitesse,Ajax\n", encoding="utf-8"
+        )
+        (cache / "2425_N1.csv").write_text(
+            "HomeTeam,AwayTeam\nAjax,PSV Eindhoven\n", encoding="utf-8"
+        )
+        return cache
+
+    def _spec(self, tmp_path, all_seasons: bool):
+        return TeamsRegistrySpec(
+            cache_dir=self._cache(tmp_path),
+            output_path=tmp_path / "out.json",
+            league_codes=["N1"],
+            all_seasons=all_seasons,
+        )
+
+    def test_default_keeps_only_the_latest_season(self, tmp_path):
+        registry = TeamsRegistryBuilder(self._spec(tmp_path, False)).build()
+        assert "Vitesse" not in registry["N1"]
+
+    def test_all_seasons_includes_relegated_clubs(self, tmp_path):
+        registry = TeamsRegistryBuilder(self._spec(tmp_path, True)).build()
+        assert "Vitesse" in registry["N1"]
+
+    def test_all_seasons_still_includes_current_clubs(self, tmp_path):
+        registry = TeamsRegistryBuilder(self._spec(tmp_path, True)).build()
+        assert {"Ajax", "PSV Eindhoven"} <= set(registry["N1"])
+
+    def test_teams_are_not_duplicated_across_seasons(self, tmp_path):
+        registry = TeamsRegistryBuilder(self._spec(tmp_path, True)).build()
+        assert registry["N1"].count("Ajax") == 1
+
+    def test_output_stays_sorted(self, tmp_path):
+        registry = TeamsRegistryBuilder(self._spec(tmp_path, True)).build()
+        assert registry["N1"] == sorted(registry["N1"])
+
+    def test_spec_defaults_to_latest_season_only(self, tmp_path):
+        spec = TeamsRegistrySpec(
+            cache_dir=self._cache(tmp_path),
+            output_path=tmp_path / "out.json",
+            league_codes=["N1"],
+        )
+        assert spec.all_seasons is False

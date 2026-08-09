@@ -57,8 +57,11 @@ class SupabaseUnresolvedNameSink(UnresolvedNameSink):
 
     def record(self, resolution: Resolution) -> None:
         try:
+            # The *scope*, not the competition: an alias approved for a club
+            # must serve every competition it plays in, and the scope is what
+            # carries the country the review screen needs.
             self._alias_service.record_pending(
-                league_code=resolution.league_code, raw_name=resolution.raw_name
+                league_code=resolution.scope, raw_name=resolution.raw_name
             )
         except Exception:
             return None

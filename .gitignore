@@ -35,3 +35,7 @@ __pycache__/
 
 # Github instructions
 /.github/instructions
+# openfootball checkout and the corpus built from it (regenerate with
+# scripts/build_european_corpus.py)
+datasets/openfootball/
+datasets/european/

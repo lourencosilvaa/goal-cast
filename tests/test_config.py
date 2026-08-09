@@ -119,3 +119,55 @@ class TestLeagueAndSeasonCoverage:
         space = self._raw(space_path)["data"]
         assert sorted(space["seasons"]) == sorted(root["seasons"])
         assert space["leagues"] == root["leagues"]
+
+
+class TestEuropeanCompetitionsConfig:
+    """The UEFA club track must be fully declared in YAML.
+
+    Nothing about these competitions may be implied at runtime: the repository
+    URL, the competition→file map, the seasons and both cache paths are all
+    environment-facing values (§6.1), asserted explicitly here (§7.3).
+    """
+
+    EXPECTED_COMPETITIONS = {"CL", "EL", "UECL"}
+    EXPECTED_QUALIFIERS = {"CLQ", "ELQ", "UECLQ"}
+
+    def test_track_is_enabled(self, config_path: Path):
+        assert load_config(config_path).european.enabled is True
+
+    def test_repo_url_points_at_openfootball(self, config_path: Path):
+        config = load_config(config_path)
+        assert "openfootball" in config.european.repo_url
+
+    def test_all_three_competitions_are_configured(self, config_path: Path):
+        config = load_config(config_path)
+        assert set(config.european.competitions) == self.EXPECTED_COMPETITIONS
+
+    def test_qualifiers_are_configured_separately(self, config_path: Path):
+        """Kept apart so including them stays a measured decision."""
+        config = load_config(config_path)
+        assert set(config.european.qualifier_competitions) == self.EXPECTED_QUALIFIERS
+
+    def test_qualifiers_are_not_mixed_into_the_main_competitions(
+        self, config_path: Path
+    ):
+        config = load_config(config_path)
+        overlap = set(config.european.competitions) & set(
+            config.european.qualifier_competitions
+        )
+        assert overlap == set()
+
+    def test_seasons_match_the_domestic_corpus(self, config_path: Path):
+        """Time-decay weighting only treats both corpora alike if the season
+        span is identical."""
+        config = load_config(config_path)
+        assert sorted(config.european.seasons) == sorted(config.data.seasons)
+
+    def test_both_cache_paths_are_configured_and_distinct(self, config_path: Path):
+        config = load_config(config_path)
+        assert config.european.cache_path != config.european.qualifiers_cache_path
+        assert config.european.cache_path.endswith(".csv")
+
+    def test_checkout_path_is_configured(self, config_path: Path):
+        config = load_config(config_path)
+        assert config.european.checkout_path

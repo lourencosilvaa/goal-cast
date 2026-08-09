@@ -84,6 +84,14 @@ class MatchPredictionResponse(BaseModel):
     top_scorelines: list[ScorelineResponse] | None = None
     form: FormResponse | None = None
     value_bets: list[ValueBetResponse] = []
+    #: Which model produced this prediction, when the writer recorded one.
+    #: ``None`` means the domestic calibrated ensemble — what every prediction
+    #: was before European fixtures existed, and what every row written before
+    #: this field still is. European fixtures carry ``elo`` (see docs §14), and
+    #: they are displayed identically, so without this a UI would present one
+    #: as the other. The field is optional because a required one would fail
+    #: the whole league response on rows already in Supabase.
+    model: str | None = None
 
 
 class LeaguePredictionsResponse(BaseModel):
@@ -198,6 +206,9 @@ def _build_league_response(result) -> LeaguePredictionsResponse:
             ),
             form=FormResponse(**form) if form else None,
             value_bets=[ValueBetResponse(**vb) for vb in vbs],
+            # Carried, never interpreted: the API's job is to stop the label
+            # being lost, not to decide what it means.
+            model=m.get("model"),
         )
         matches.append(match_resp)
 
