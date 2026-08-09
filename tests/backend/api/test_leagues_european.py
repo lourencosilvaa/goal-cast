@@ -28,6 +28,7 @@ def _client(european: EuropeanConfig | None = None) -> TestClient:
         data = DataConfig(
             base_url="https://example.test/",
             leagues={"E0": "Premier League", "P1": "Liga Portugal"},
+            served_leagues=["E0", "P1"],
             seasons=["2526"],
             columns_to_keep=["Date"],
         )

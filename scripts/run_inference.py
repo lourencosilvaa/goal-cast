@@ -516,17 +516,28 @@ def main() -> None:
         help="Target date DD/MM/YYYY (default: all fixture dates)",
     )
     parser.add_argument(
-        "--leagues", default=None, help="Comma-separated league codes (default: all)"
+        "--leagues",
+        default=None,
+        help="Comma-separated league codes (default: config data.served_leagues)",
     )
     args = parser.parse_args()
 
     config = load_config()
 
-    # Resolve leagues
+    # Resolve leagues.
+    #
+    # `served_leagues`, not `data.leagues`: the corpus is wider than the
+    # product on purpose, and predicting a division nobody can select would
+    # only fill Supabase with rows no client ever asks for. The ELO/training
+    # load in `_load_all_featured_data` still spans `data.leagues` — narrowing
+    # *that* is what moves ratings, and it is deliberately left alone.
+    #
+    # An explicit --leagues still overrides, including with unserved codes: an
+    # operator backfilling one division is not the product surface.
     league_codes = (
         [lc.strip().upper() for lc in args.leagues.split(",")]
         if args.leagues
-        else list(config.data.leagues.keys())
+        else list(config.data.served_leagues)
     )
 
     # Resolve dates

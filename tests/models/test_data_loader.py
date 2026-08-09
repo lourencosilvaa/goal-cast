@@ -13,6 +13,7 @@ def data_config() -> DataConfig:
         base_url="https://www.football-data.co.uk/mmz4281",
         seasons=["2324", "2425"],
         leagues={"E0": "Premier League", "SP1": "La Liga"},
+        served_leagues=["E0", "SP1"],
         columns_to_keep=["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"],
     )
 

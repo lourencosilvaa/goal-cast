@@ -1,62 +1,61 @@
 import { NavLink } from 'react-router-dom';
-import { BarChart3, Settings, TrendingUp, ShieldCheck, LogOut, Wand2, Shield } from 'lucide-react';
+import clsx from 'clsx';
+import { LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { NAV_ITEMS } from '@/config/nav';
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: BarChart3 },
-  { to: '/value-bets', label: 'Value Bets', icon: TrendingUp },
-  { to: '/custom-predict', label: 'Prever', icon: Wand2 },
-  { to: '/team-stats', label: 'Equipas', icon: Shield },
-  { to: '/settings', label: 'Definições', icon: Settings },
-];
-
+/** The rail's counterpart below the desktop breakpoint. */
 export function MobileNav() {
   const { profile, signOut } = useAuth();
 
+  const items = NAV_ITEMS.filter((item) => !item.adminOnly || profile?.is_admin);
+
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 glass border-t border-line"
+    <nav
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-nav border-t border-line"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <div className="flex justify-around py-2 items-center">
-        {navItems.map((item) => (
+      <div className="flex justify-around items-center py-2 gap-1">
+        {items.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
             className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] transition-all ${
-                isActive ? 'text-accent-blue' : 'text-fg-subtle'
-              }`
+              clsx(
+                'flex flex-col items-center gap-1 px-2 py-1 transition-colors',
+                isActive ? 'text-accent' : 'text-fg-subtle',
+              )
             }
           >
-            <item.icon className="w-5 h-5" />
-            {item.label}
+            {({ isActive }) => (
+              <>
+                <span
+                  className={clsx(
+                    'w-7 h-5 inline-flex items-center justify-center rounded border font-mono text-[10px] font-bold',
+                    isActive ? 'border-accent/45' : 'border-line',
+                  )}
+                >
+                  {item.code}
+                </span>
+                <span className="text-[9px] font-semibold">{item.label}</span>
+              </>
+            )}
           </NavLink>
         ))}
 
-        {profile?.is_admin && (
-          <NavLink
-            to="/admin"
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] transition-all ${
-                isActive ? 'text-accent-purple' : 'text-fg-subtle'
-              }`
-            }
-          >
-            <ShieldCheck className="w-5 h-5" />
-            Admin
-          </NavLink>
-        )}
-
-        <ThemeToggle compact />
+        <div className="flex flex-col items-center gap-1 px-2 py-1">
+          <ThemeToggle compact />
+          <span className="text-[9px] font-semibold text-fg-subtle">Tema</span>
+        </div>
 
         <button
           onClick={signOut}
-          className="flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] transition-all text-fg-subtle hover:text-accent-red"
+          className="flex flex-col items-center gap-1 px-2 py-1 text-fg-subtle hover:text-accent-red transition-colors cursor-pointer"
         >
-          <LogOut className="w-5 h-5" />
-          Sair
+          <LogOut className="w-4 h-4" />
+          <span className="text-[9px] font-semibold">Sair</span>
         </button>
       </div>
     </nav>

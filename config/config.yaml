@@ -45,6 +45,27 @@ data:
     P1: "Liga Portugal"
     T1: "Super Lig"
     G1: "Super League Greece"
+  # The subset actually offered by the API and the UI — first tiers only.
+  #
+  # Everything above is still downloaded, trained on and walked by ELO; this
+  # list only decides what a user sees. The two are deliberately different:
+  # the secondary divisions are ~51% of the training rows, and because ELO is
+  # one global pool keyed by team name, they are the only thing that lets a
+  # promoted side arrive with a real rating rather than the 1500 default.
+  #
+  # Re-enabling a division is a one-line change here — its data never left.
+  served_leagues:
+    - E0
+    - SC0
+    - SP1
+    - D1
+    - I1
+    - F1
+    - N1
+    - B1
+    - P1
+    - T1
+    - G1
   columns_to_keep:
     - "Date"
     - "HomeTeam"

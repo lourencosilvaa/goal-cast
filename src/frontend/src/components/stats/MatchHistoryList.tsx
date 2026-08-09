@@ -33,7 +33,7 @@ export function MatchHistoryList({
       {matches.map((match, i) => (
         <div
           key={`${match.date}-${i}`}
-          className="flex items-center gap-3 px-3 py-2 rounded-xl bg-card-2 border border-line"
+          className="flex items-center gap-3 px-3 py-2 rounded-md bg-card-2 border border-line"
         >
           <span className="text-[10px] text-fg-subtle font-mono w-[68px] shrink-0">
             {shortDate(match.date)}

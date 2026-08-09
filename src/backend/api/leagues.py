@@ -33,10 +33,16 @@ async def list_leagues(
     offering a league table for a competition that has none.
     """
     config = request.app.state.config
+    # `leagues` is the training corpus, which is wider than the product on
+    # purpose — see DataConfig. Only `served_leagues` may be offered.
+    served = set(config.data.served_leagues)
     entries = [
         {"code": code, "name": name, "type": TYPE_LEAGUE}
         for code, name in config.data.leagues.items()
+        if code in served
     ]
+    # Not filtered: the UEFA competitions are absent from `data.leagues`
+    # entirely, so a subset of it can say nothing about them.
     entries.extend(_european_entries(config))
     return entries
 

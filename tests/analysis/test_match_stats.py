@@ -25,6 +25,7 @@ def _data_config() -> DataConfig:
         base_url="http://example.test",
         seasons=[],
         leagues={"E0": "Premier League"},
+        served_leagues=["E0"],
         columns_to_keep=[],
     )
 

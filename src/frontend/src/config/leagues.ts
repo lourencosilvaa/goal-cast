@@ -1,37 +1,54 @@
 /**
- * Leagues offered by the on-demand prediction and statistics pages.
+ * Presentation for leagues. **Not** the list of them.
  *
- * Kept in one place so the "Prever Jogo" and "Equipas" pickers can never drift
- * apart. Codes must match `data.leagues` in `config/config.yaml`.
+ * The set of selectable leagues comes from `GET /api/leagues`, which reads
+ * `data.served_leagues` in `config/config.yaml`. Keeping a second copy here
+ * is what previously let the frontend go on offering divisions the backend
+ * had already withdrawn.
+ *
+ * Flags stay client-side on purpose: an emoji is presentation, not
+ * environment configuration, and a league missing from this map still renders
+ * — it just gets the neutral glyph. So adding a league to the backend config
+ * needs no frontend change at all.
  */
-export interface LeagueOption {
-  code: string;
-  name: string;
-  flag: string;
+
+/** Neutral stand-in for a league with no flag mapped yet. */
+export const FALLBACK_FLAG = '🏟️';
+
+const LEAGUE_FLAGS: Record<string, string> = {
+  E0: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+  E1: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+  E2: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+  E3: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+  SC0: '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+  SC1: '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+  SC2: '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+  SC3: '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+  SP1: '🇪🇸',
+  SP2: '🇪🇸',
+  D1: '🇩🇪',
+  D2: '🇩🇪',
+  I1: '🇮🇹',
+  I2: '🇮🇹',
+  F1: '🇫🇷',
+  F2: '🇫🇷',
+  N1: '🇳🇱',
+  B1: '🇧🇪',
+  P1: '🇵🇹',
+  T1: '🇹🇷',
+  G1: '🇬🇷',
+  CL: '⭐',
+  EL: '🟠',
+  UECL: '🔵',
+  ECL: '🔵',
+};
+
+/**
+ * Flag for a league code.
+ *
+ * Codes not in the map are expected, not exceptional — the backend may serve
+ * a league this file has never heard of.
+ */
+export function flagFor(code: string): string {
+  return LEAGUE_FLAGS[code] ?? FALLBACK_FLAG;
 }
-
-export const LEAGUES: readonly LeagueOption[] = [
-  { code: 'E0', name: 'Premier League', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-  { code: 'E1', name: 'Championship', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-  { code: 'E2', name: 'League One', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-  { code: 'E3', name: 'League Two', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
-  { code: 'SC0', name: 'Scottish Premiership', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
-  { code: 'SC1', name: 'Scottish Championship', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
-  { code: 'SC2', name: 'Scottish League One', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
-  { code: 'SC3', name: 'Scottish League Two', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
-  { code: 'SP1', name: 'La Liga', flag: '🇪🇸' },
-  { code: 'SP2', name: 'La Liga 2', flag: '🇪🇸' },
-  { code: 'D1', name: 'Bundesliga', flag: '🇩🇪' },
-  { code: 'D2', name: '2. Bundesliga', flag: '🇩🇪' },
-  { code: 'I1', name: 'Serie A', flag: '🇮🇹' },
-  { code: 'I2', name: 'Serie B', flag: '🇮🇹' },
-  { code: 'F1', name: 'Ligue 1', flag: '🇫🇷' },
-  { code: 'F2', name: 'Ligue 2', flag: '🇫🇷' },
-  { code: 'N1', name: 'Eredivisie', flag: '🇳🇱' },
-  { code: 'B1', name: 'Jupiler Pro League', flag: '🇧🇪' },
-  { code: 'P1', name: 'Liga Portugal', flag: '🇵🇹' },
-  { code: 'T1', name: 'Super Lig', flag: '🇹🇷' },
-  { code: 'G1', name: 'Super League Greece', flag: '🇬🇷' },
-] as const;
-
-export const DEFAULT_LEAGUE_CODE = LEAGUES[0].code;

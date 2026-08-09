@@ -41,7 +41,14 @@ class PredictionService:
 
     def __init__(self, config: Config) -> None:
         self.config = config
+        #: Leagues the product may serve. Narrower than ``data.leagues`` on
+        #: purpose — the corpus is what the model trains on, not what a user
+        #: sees. Resolved once; the config does not change at runtime.
+        self._served: frozenset[str] = frozenset(config.data.served_leagues)
         self._cache: OrderedDict[str, LeaguePredictions] = OrderedDict()
+
+    def _is_served(self, league_code: str) -> bool:
+        return league_code in self._served
 
     # ------------------------------------------------------------------
     # Public API
@@ -52,6 +59,16 @@ class PredictionService:
     ) -> LeaguePredictions:
         """Get predictions for a league from Supabase (with in-memory cache)."""
         resolved_date = target_date or datetime.now().strftime("%d/%m/%Y")
+
+        # Withheld before the query, not after: an unserved league has nothing
+        # to say to a client, so the round trip would be pure waste.
+        if not self._is_served(league_code):
+            return LeaguePredictions(
+                league_code=league_code,
+                league_name=self.config.data.leagues.get(league_code, league_code),
+                matches=[],
+            )
+
         cache_key = f"{league_code}:{resolved_date}"
 
         # In-memory cache hit
@@ -80,9 +97,15 @@ class PredictionService:
         """Return sorted distinct dates that have predictions in Supabase."""
         try:
             sb = get_supabase_client()
-            resp = sb.table("predictions").select("match_date").execute()
+            resp = sb.table("predictions").select("match_date, league_code").execute()
             rows: list[dict[str, Any]] = resp.data or []  # type: ignore[assignment]
-            dates: set[str] = {row["match_date"] for row in rows}
+            # A date whose only fixtures are unserved would be offered by the
+            # picker and then render as empty.
+            dates: set[str] = {
+                row["match_date"]
+                for row in rows
+                if self._is_served(row.get("league_code", ""))
+            }
             return sorted(dates, key=lambda d: datetime.strptime(d, "%d/%m/%Y"))
         except Exception as e:
             print(f"Error fetching dates from Supabase: {e}")
@@ -146,8 +169,15 @@ class PredictionService:
             )
             rows: list[dict[str, Any]] = resp.data or []  # type: ignore[assignment]
             for row in rows:
-                payload: dict[str, Any] = row["payload"]
                 lc: str = row["league_code"]
+                # Skipped before caching, so a withheld league can never be
+                # returned later by a cache hit. The table still holds rows
+                # for divisions withdrawn from the product — upsert never
+                # deletes — so this filter, not the upload, is what withholds
+                # them.
+                if not self._is_served(lc):
+                    continue
+                payload: dict[str, Any] = row["payload"]
                 ln = self.config.data.leagues.get(lc, lc)
                 lp = LeaguePredictions(
                     league_code=str(payload.get("league_code", lc)),

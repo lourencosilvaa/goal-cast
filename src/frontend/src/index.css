@@ -3,86 +3,110 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: 'Space Grotesk', system-ui, sans-serif;
-
-  /* Semantic accent palette — identical hues in both themes */
-  --color-accent-green: #22c55e;
-  --color-accent-red: #ef4444;
-  --color-accent-blue: #3b82f6;
-  --color-accent-amber: #f59e0b;
-  --color-accent-purple: #a855f7;
+  --font-sans: 'Archivo', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/*
+ * Every colour in the app resolves through this block. The custom properties
+ * below are redefined once in `:root` and once in `.dark`, so re-theming the
+ * product means editing this file and nothing else — no component holds a
+ * literal colour.
+ */
 @theme inline {
-  /* Runtime-switchable surface / text tokens (defined in :root and .dark) */
+  /* Surfaces */
   --color-bg: var(--bg);
-  --color-card: var(--card);
-  --color-card-2: var(--card-2);
+  --color-card: var(--bg-2);
+  --color-card-2: var(--bg-3);
+  --color-nav: var(--nav);
+
+  /* Lines */
   --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+
+  /* Text */
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);
   --color-fg-subtle: var(--fg-subtle);
+
+  /*
+   * Primary accent (orange) and the secondary used as the opposite end of a
+   * two-sided bar (blue). `neutral-bar` is the inert middle segment — a draw
+   * is not a good or a bad outcome, so it gets no hue.
+   */
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-neutral-bar: var(--neutral-bar);
+
+  /*
+   * Semantic hues, reserved for things that genuinely carry valence:
+   * win/draw/loss records, value/edge, errors. 1X2 probability bars use
+   * accent / neutral-bar / accent-2 instead.
+   */
+  --color-accent-green: var(--green);
+  --color-accent-red: var(--red);
+  --color-accent-amber: var(--amber);
+  --color-accent-blue: var(--accent-2);
+  --color-accent-purple: var(--purple);
 }
 
 :root {
-  --bg: #f4f5f7;
-  --card: #ffffff;
-  --card-2: #eceef1;
-  --line: rgba(15, 23, 42, 0.10);
-  --fg: #0f1115;
-  --fg-muted: #55607a;
-  --fg-subtle: #9aa2b1;
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-border: rgba(15, 23, 42, 0.08);
+  --bg: oklch(0.985 0.003 260);
+  --bg-2: oklch(0.96 0.004 260);
+  --bg-3: oklch(0.91 0.005 260);
+  --nav: oklch(0.94 0.004 260);
+  --line: oklch(0.85 0.006 260);
+  --line-soft: oklch(0.88 0.006 260);
+  --fg: oklch(0.18 0.005 260);
+  --fg-muted: oklch(0.35 0.01 260);
+  --fg-subtle: oklch(0.5 0.01 260);
+  --accent: oklch(0.6 0.19 45);
+  --accent-2: oklch(0.55 0.16 230);
+  --neutral-bar: oklch(0.8 0.006 260);
+  --green: oklch(0.58 0.15 150);
+  --red: oklch(0.55 0.18 25);
+  --amber: oklch(0.65 0.14 85);
+  --purple: oklch(0.55 0.18 300);
   color-scheme: light;
 }
 
 .dark {
-  --bg: #08080e;
-  --card: #111219;
-  --card-2: #191b24;
-  --line: rgba(255, 255, 255, 0.08);
-  --fg: rgba(255, 255, 255, 0.92);
-  --fg-muted: rgba(255, 255, 255, 0.55);
-  --fg-subtle: rgba(255, 255, 255, 0.34);
-  --glass-bg: rgba(255, 255, 255, 0.03);
-  --glass-border: rgba(255, 255, 255, 0.06);
+  --bg: oklch(0.15 0.004 260);
+  --bg-2: oklch(0.19 0.006 260);
+  --bg-3: oklch(0.23 0.006 260);
+  --nav: oklch(0.115 0.004 260);
+  --line: oklch(0.3 0.006 260);
+  --line-soft: oklch(0.25 0.006 260);
+  --fg: oklch(0.95 0.005 260);
+  --fg-muted: oklch(0.75 0.01 260);
+  --fg-subtle: oklch(0.55 0.01 260);
+  --accent: oklch(0.72 0.19 45);
+  --accent-2: oklch(0.68 0.15 230);
+  --neutral-bar: oklch(0.4 0.006 260);
+  --green: oklch(0.75 0.17 150);
+  --red: oklch(0.65 0.18 25);
+  --amber: oklch(0.8 0.15 85);
+  --purple: oklch(0.68 0.16 300);
   color-scheme: dark;
 }
 
-@utility glass {
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-color: var(--glass-border);
+/* The signals ticker scrolls one full copy of a doubled list, then repeats. */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 
-@utility grid-overlay {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 50px 50px;
+@utility marquee-track {
+  animation: marquee var(--marquee-duration, 34s) linear infinite;
 }
 
-@utility gradient-text {
-  background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
 }
 
-@keyframes aurora {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.5; }
-  25% { transform: translate(30px, -20px) scale(1.1); opacity: 0.7; }
-  50% { transform: translate(-20px, 20px) scale(0.95); opacity: 0.4; }
-  75% { transform: translate(10px, 10px) scale(1.05); opacity: 0.6; }
-}
-
-@utility aurora-blob {
-  animation: aurora 12s ease-in-out infinite;
-  filter: blur(80px);
-  border-radius: 50%;
-  pointer-events: none;
+@utility pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
 }
 
 @utility scrollbar-hide {
@@ -91,19 +115,22 @@
   &::-webkit-scrollbar { display: none; }
 }
 
-@keyframes bar-fill {
-  from { width: 0%; }
-}
-
-@utility bar-animate {
-  animation: bar-fill 0.8s ease-out;
+/*
+ * Uppercase mono micro-label. Used for column heads, section labels and the
+ * nav rail codes — the design's main device for separating chrome from data.
+ */
+@utility label-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -112,6 +139,10 @@ body {
   min-height: 100vh;
 }
 
-@utility neon-glow {
-  box-shadow: 0 0 10px rgba(34, 197, 94, 0.25), 0 0 20px rgba(34, 197, 94, 0.08);
+/* Native controls do not inherit the body font in every browser. */
+select,
+input,
+button,
+textarea {
+  font-family: inherit;
 }

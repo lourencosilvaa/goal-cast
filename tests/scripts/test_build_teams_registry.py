@@ -154,6 +154,10 @@ def _write_config(tmp_path: Path, registry_path: Path) -> Path:
     source = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
     data = yaml.safe_load(source.read_text(encoding="utf-8"))
     data["data"]["leagues"] = dict(_TEST_LEAGUES)
+    # Narrowed alongside `leagues`: served_leagues must stay a subset of the
+    # corpus, so trimming one without the other is a config the loader
+    # rightly rejects.
+    data["data"]["served_leagues"] = list(_TEST_LEAGUES)
     data["teams"] = {"registry_path": str(registry_path)}
 
     Config(**data)  # fail loudly if the schema drifts

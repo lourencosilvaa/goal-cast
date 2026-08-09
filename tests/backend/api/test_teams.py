@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from config.config_loader import DataConfig
 from src.backend.api import teams as teams_module
 from src.backend.services.inference_service import InferenceService
 from src.backend.api.teams import router, get_team_repository
@@ -28,11 +29,29 @@ def _registry(tmp_path, payload) -> str:
 
 class TestGetTeamsEndpoint:
 
-    def _client(self, repository) -> TestClient:
+    def _client(self, repository, served: list[str] | None = None) -> TestClient:
         app = FastAPI()
         app.include_router(router)
         app.dependency_overrides[get_current_user] = lambda: "user-123"
         app.dependency_overrides[get_team_repository] = lambda: repository
+
+        # Served set stated explicitly (§7.3) — the catalogue is scoped to the
+        # leagues the product offers, and the repository upstream (the Space)
+        # answers for the whole training corpus.
+        class _Config:
+            data = DataConfig(
+                base_url="https://example.test/",
+                leagues={
+                    "E0": "Premier League",
+                    "E1": "Championship",
+                    "SP1": "La Liga",
+                },
+                served_leagues=list(served or ["E0", "E1", "SP1"]),
+                seasons=["2526"],
+                columns_to_keep=["Date"],
+            )
+
+        app.state.config = _Config()
         return TestClient(app, raise_server_exceptions=False)
 
     def test_returns_repository_data(self):
@@ -48,6 +67,25 @@ class TestGetTeamsEndpoint:
         res = self._client(repo).get("/api/teams")
         assert res.status_code == 200
         assert res.json() == {}
+
+    def test_unserved_league_is_withheld(self):
+        """The Space answers for the whole corpus; the product must not."""
+        repo = AsyncMock()
+        repo.get_teams.return_value = {
+            "E0": ["Arsenal"],
+            "E1": ["Watford"],
+            "SP1": ["Barcelona"],
+        }
+        res = self._client(repo, served=["E0", "SP1"]).get("/api/teams")
+        assert res.status_code == 200
+        assert res.json() == {"E0": ["Arsenal"], "SP1": ["Barcelona"]}
+
+    def test_served_league_absent_upstream_is_simply_absent(self):
+        """A served league the repository has no teams for yields no key."""
+        repo = AsyncMock()
+        repo.get_teams.return_value = {"E0": ["Arsenal"]}
+        res = self._client(repo, served=["E0", "SP1"]).get("/api/teams")
+        assert res.json() == {"E0": ["Arsenal"]}
 
     def test_unauthenticated_returns_401(self):
         app = FastAPI()
