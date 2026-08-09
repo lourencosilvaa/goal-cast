@@ -35,6 +35,12 @@ class TeamsRegistrySpec:
     cache_dir: Path
     output_path: Path
     league_codes: list[str]
+    #: Read every cached season rather than only the newest. The default
+    #: answers "who plays this season", which is what a fixture picker wants.
+    #: Alias resolution wants the opposite — a club relegated out of a tracked
+    #: division still has years of history in the corpus and must remain
+    #: matchable to it.
+    all_seasons: bool = False
 
 
 class TeamsRegistryBuilder:
@@ -48,11 +54,16 @@ class TeamsRegistryBuilder:
     def __init__(self, spec: TeamsRegistrySpec) -> None:
         self.spec = spec
 
-    def _latest_season_file(self, league: str) -> Path | None:
-        """Cache files are named ``{season}_{league}.csv``; seasons sort
-        lexicographically (e.g. 2425 < 2526), so the last one is the newest."""
+    def _season_files(self, league: str) -> list[Path]:
+        """Cache files for a league, newest last.
+
+        Files are named ``{season}_{league}.csv`` and seasons sort
+        lexicographically (2425 < 2526), so the last one is the newest.
+        """
         files = sorted(self.spec.cache_dir.glob(f"*_{league}.csv"))
-        return files[-1] if files else None
+        if not files:
+            return []
+        return files if self.spec.all_seasons else [files[-1]]
 
     def _read_teams(self, path: Path) -> list[str]:
         teams: set[str] = set()
@@ -69,15 +80,14 @@ class TeamsRegistryBuilder:
         if not self.spec.cache_dir.is_dir():
             return registry
         for league in self.spec.league_codes:
-            path = self._latest_season_file(league)
-            if path is None:
-                continue
-            try:
-                teams = self._read_teams(path)
-            except (OSError, UnicodeDecodeError, csv.Error):
-                continue
+            teams: set[str] = set()
+            for path in self._season_files(league):
+                try:
+                    teams.update(self._read_teams(path))
+                except (OSError, UnicodeDecodeError, csv.Error):
+                    continue
             if teams:
-                registry[league] = teams
+                registry[league] = sorted(teams)
         return registry
 
     def write(self, registry: dict[str, list[str]]) -> None:
@@ -105,16 +115,30 @@ def _parse_args() -> argparse.Namespace:
         default="",
         help="Override the registry output path from config",
     )
+    parser.add_argument(
+        "--all-seasons",
+        action="store_true",
+        help=(
+            "Include every cached season, not just the newest. Use for the "
+            "historical registry that alias resolution matches against."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
     config = load_config(args.config)
+    default_output = (
+        config.teams.historical_registry_path
+        if args.all_seasons
+        else config.teams.registry_path
+    )
     spec = TeamsRegistrySpec(
         cache_dir=Path(args.cache_dir),
-        output_path=Path(args.output or config.teams.registry_path),
+        output_path=Path(args.output or default_output),
         league_codes=list(config.data.leagues),
+        all_seasons=args.all_seasons,
     )
     builder = TeamsRegistryBuilder(spec)
     registry = builder.build()

@@ -10,11 +10,15 @@ import {
 } from '@/lib/api';
 
 /**
- * Review queue for team names scraped from FlashScore.
+ * Review queue for team names the pipeline could not match.
  *
- * The pipeline queues any name it could not match to the canonical
- * football-data spelling and skips that fixture. Nothing is resolved until an
- * admin confirms it here — the suggestions are proposals, never decisions.
+ * Two sources feed it: FlashScore fixtures, and the openfootball corpus behind
+ * the European competitions. Either way the fixture is skipped until a human
+ * confirms the mapping — the suggestions are proposals, never decisions.
+ *
+ * European entries carry a country ("EU-POR"), which narrows both the
+ * suggestions and the picker to that country's teams. Without it a full name
+ * like "AC Sparta Praha" draws confident nonsense from 21 leagues.
  */
 export function TeamAliasPanel() {
   const [data, setData] = useState<TeamAliasList | null>(null);
@@ -47,8 +51,9 @@ export function TeamAliasPanel() {
 
   const key = (leagueCode: string, rawName: string) => `${leagueCode}::${rawName}`;
 
-  async function handleApprove(leagueCode: string, rawName: string) {
-    const canonical = choice[key(leagueCode, rawName)];
+  async function handleApprove(leagueCode: string, rawName: string, canonical: string) {
+    // Taken from the caller, not from `choice`: a pre-selected suggestion the
+    // admin accepted without touching the dropdown has no entry there yet.
     if (!canonical) return;
     setBusy(key(leagueCode, rawName));
     setError(null);
@@ -99,9 +104,10 @@ export function TeamAliasPanel() {
       </div>
 
       <p className="text-xs text-fg-muted leading-relaxed">
-        Nomes recolhidos do FlashScore que não correspondem a nenhuma equipa conhecida.
-        Enquanto não forem validados, os jogos correspondentes são ignorados — nunca
-        previstos com médias da liga.
+        Nomes recolhidos do FlashScore e das competições europeias que não
+        correspondem a nenhuma equipa conhecida. Enquanto não forem validados, os
+        jogos correspondentes são ignorados — nunca previstos com médias da liga.
+        A sugestão no topo vem pré-seleccionada, mas nada é aplicado sem confirmação.
       </p>
 
       {error && <p className="text-xs text-accent-red">✗ {error}</p>}
@@ -112,7 +118,16 @@ export function TeamAliasPanel() {
         <div className="space-y-2">
           {pending.map((entry) => {
             const id = key(entry.league_code, entry.raw_name);
-            const options = data?.teams[entry.league_code] ?? [];
+            // Sent per entry: a UEFA scope ("EU-POR") is a country, not a
+            // league, so it has no entry in `teams`.
+            const options = entry.options.length
+              ? entry.options
+              : (data?.teams[entry.league_code] ?? []);
+            // The top suggestion is pre-selected to save a click, never
+            // applied — approval still needs the button. Suggestions are
+            // routinely wrong in ways only a human catches ("Sport Lisboa e
+            // Benfica" ranks "Sp Lisbon", which is Sporting, above "Benfica").
+            const selected = choice[id] ?? entry.suggestions[0] ?? '';
             return (
               <div
                 key={id}
@@ -124,9 +139,14 @@ export function TeamAliasPanel() {
                   <span className="text-[10px] text-fg-subtle shrink-0">
                     {entry.league_code}
                   </span>
+                  {entry.country && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-blue/15 text-accent-blue border border-accent-blue/25 shrink-0">
+                      {entry.country}
+                    </span>
+                  )}
                 </div>
                 <select
-                  value={choice[id] ?? ''}
+                  value={selected}
                   onChange={(e) => setChoice({ ...choice, [id]: e.target.value })}
                   className="px-3 py-1.5 rounded-lg bg-card border border-line text-fg text-xs focus:outline-none focus:border-accent-blue/40 sm:w-56"
                 >
@@ -152,8 +172,10 @@ export function TeamAliasPanel() {
                   variant="primary"
                   size="sm"
                   loading={busy === id}
-                  disabled={!choice[id]}
-                  onClick={() => handleApprove(entry.league_code, entry.raw_name)}
+                  disabled={!selected}
+                  onClick={() =>
+                    handleApprove(entry.league_code, entry.raw_name, selected)
+                  }
                 >
                   <Check className="w-3.5 h-3.5 mr-1 inline" />
                   Validar

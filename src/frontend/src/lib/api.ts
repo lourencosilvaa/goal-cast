@@ -419,6 +419,16 @@ export interface PendingTeamAlias {
   raw_name: string;
   /** Advisory candidates — an admin picks one, nothing is auto-applied. */
   suggestions: string[];
+  /**
+   * Country of a name from a UEFA competition, whose scope encodes it
+   * ("EU-POR"). Null for domestic names.
+   */
+  country: string | null;
+  /**
+   * Every team this entry may be mapped to. Sent per entry because a UEFA
+   * scope is not a league, so it cannot be looked up in `teams`.
+   */
+  options: string[];
 }
 
 export interface ApprovedTeamAlias {

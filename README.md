@@ -230,6 +230,7 @@ football-prediction-agent/
 │   ├── train_model.py             # Train ensemble + calibration + Dixon-Coles
 │   ├── tune_xgboost.py            # Offline XGBoost log-loss search (report-only)
 │   ├── tune_blend_weight.py       # Offline ensemble/Poisson blend-weight sweep
+│   ├── tune_european_weight.py    # Offline European Dixon-Coles/ELO blend sweep
 │   ├── upload_to_hf.py            # Upload model + Parquet datasets to HF
 │   ├── restart_hf_space.py        # Restart the HF Space so it reloads the new data
 │   ├── run_inference.py           # Offline inference → Supabase upload
@@ -280,6 +281,70 @@ The app runs as two separate services on **Render**, backed by **Supabase** (aut
 | Database & Auth | Supabase | — |
 | On-demand Inference | HuggingFace Space | Docker (`hf_space/`) |
 | ML Model + Datasets | Hugging Face Hub | Private repo (`datasets/` subfolder) |
+
+---
+
+### Step 0 — External APIs and keys
+
+Everything the project talks to, and whether you need to register for it.
+
+#### Required
+
+| Service | Key | Free tier | Used for | Set in |
+|---|---|---|---|---|
+| [Supabase](https://supabase.com/) | Project URL, `service_role` secret, `anon` key | Free plan is sufficient | Auth, `predictions`, `team_aliases`, encrypted per-user API keys | Render backend, Render frontend, GitHub Actions |
+| [Hugging Face](https://huggingface.co/settings/tokens) | User Access Token (write) | Free | Model + dataset storage, Space hosting | HF Space secrets, GitHub Actions |
+
+#### No key required
+
+| Source | Used for | Notes |
+|---|---|---|
+| [football-data.co.uk](https://www.football-data.co.uk/) | Domestic results (21 leagues) and `fixtures.csv` with Bet365 odds | No registration, no rate limit. The primary data source. |
+| [openfootball](https://github.com/openfootball/champions-league) | European results corpus (CL/EL/UECL) | Public domain, plain `git clone`. See [docs/european-competitions.md](docs/european-competitions.md). |
+
+#### Optional
+
+| Service | Key | Free tier | Used for | Set in |
+|---|---|---|---|---|
+| [The Odds API](https://the-odds-api.com/) | `THE_ODDS_API_KEY` | 500 credits/month | Fixture + odds **fallback** when `fixtures.csv` is empty. Also the only configured odds source for CL/EL/UECL (`odds_api.competitions`). | GitHub Actions (`run-inference.yml`) |
+| [Google Gemini](https://aistudio.google.com/apikey) | — | — | AI match commentary | **Per user, not an env var.** Each user pastes their own key into Settings; it is encrypted at rest with `ENCRYPTION_KEY` and never leaves the backend. |
+
+> **Both fixture keys are wired into `run-inference.yml` and are now required.**
+> They were not: the workflow set neither, so every provider skipped itself and
+> each scheduled run discovered zero European fixtures without saying so. With
+> `european.required: true` an empty provider chain now raises
+> `NoFixtureProvidersError` instead. **Add both as GitHub Actions secrets
+> (Step 5) before the next scheduled run**, or set `european.required: false`
+> to go back to skipping quietly.
+
+#### European fixture discovery
+
+openfootball supplies *historical* results, not upcoming fixtures, so those come
+from an API. Every claim below was verified against the live services with real
+keys in August 2026 — the published tiers do not tell the whole story.
+
+| Service | Env var | Free tier | Serves upcoming CL/EL/UECL? |
+|---|---|---|---|
+| [The Odds API](https://the-odds-api.com/) | `THE_ODDS_API_KEY` | 500 credits/month; **`/events` costs 0** | ✅ **Yes** — the primary source |
+| [football-data.org](https://www.football-data.org/) | `FOOTBALL_DATA_API_KEY` | 10 req/min | ⏳ CL only, and its schedule lags a season |
+| [API-Football](https://www.api-football.com/) | `API_FOOTBALL_API_KEY` | 100 req/day | ❌ **No** — free plan is capped at seasons 2022–2024 |
+
+Two findings worth knowing before you rely on any of them:
+
+- **API-Football cannot serve upcoming fixtures on the free plan at all.** It
+  answers `HTTP 200` with `results: 0` and the real reason buried in
+  `body["errors"]`: *"Free plans do not have access to this season, try from
+  2022 to 2024."* A status-code-only check reads that as "no matches scheduled".
+  It is therefore not configured as a fixture provider — it is used only by
+  `scripts/verify_corpus_against_api_football.py`, over the seasons it does
+  cover.
+- **football-data.org is dormant, not broken.** Its free tier covers the
+  Champions League (Europa returns 403, Conference 404) but was still serving
+  the completed 2025-26 season, so `status=SCHEDULED` returned nothing. It
+  should start answering once 2026-27 loads, which is why it stays configured.
+
+The chain returns the first non-empty answer, so provider order is a correctness
+property rather than a preference — it lives in `european.provider_order`.
 
 ---
 
@@ -427,6 +492,24 @@ Set the **Health check path** to `/api/health` — it is unauthenticated and ret
 
 The backend is lightweight — it does **not** load any ML model or historical data. It reads pre-computed predictions from the Supabase `predictions` table and serves them via the API. Startup is near-instant and memory usage stays under 50 MB.
 
+**No additional environment variables are needed for the European competitions.**
+The admin alias-review screen reuses `SUPABASE_URL` / `SUPABASE_SERVICE_KEY`, and
+the openfootball corpus never reaches Render — it is built offline and shipped to
+Hugging Face inside `datasets/european.parquet`.
+
+Two files the image needs are committed to the repo rather than generated at
+build time, because the backend container installs only the `backend` dependency
+group and has no pandas to rebuild them with:
+
+| File | Purpose |
+|---|---|
+| `src/backend/data/teams_registry.json` | Current-season teams — fixture pickers, `/teams` |
+| `src/backend/data/teams_registry_historical.json` | Every cached season — alias resolution |
+
+Both live under `src/backend/`, which the `Dockerfile` copies wholesale. Regenerate
+and **commit** them whenever new season data lands (see
+[docs/european-competitions.md](docs/european-competitions.md) §5).
+
 After the service is created, copy its public URL — you'll need it for the frontend and GitHub Actions.
 
 ---
@@ -460,6 +543,8 @@ Add these in **GitHub → Settings → Secrets and variables → Actions**:
 | `RENDER_DEPLOY_HOOK_URL` | Render deploy hook (backend service → Settings → Deploy Hook) |
 | `RENDER_BACKEND_URL` | Backend public URL |
 | `RETRAIN_API_KEY` | Same value as the backend env var |
+| `THE_ODDS_API_KEY` | **Required.** Enables the Odds API fallback for domestic fixtures **and** is the primary source of upcoming European fixtures. Absent, with no other provider keyed → the inference job fails under `european.required`. |
+| `FOOTBALL_DATA_API_KEY` | Champions League fixture fallback. Dormant until football-data.org loads the current season, but it counts as a provider: with this set and the Odds API key absent, the run proceeds. |
 
 #### Retrain workflow (`.github/workflows/retrain.yml`)
 Runs **every Monday at 06:00 UTC** (or manually via *Run workflow*, with an optional `force` toggle):
@@ -621,6 +706,8 @@ uv run python scripts/train_model.py
 uv run python scripts/tune_xgboost.py
 # Sweep the ensemble/Poisson blend weight by held-out log-loss
 uv run python scripts/tune_blend_weight.py
+# Sweep the European Dixon-Coles/ELO blend, rolling-origin over recent seasons
+uv run python scripts/tune_european_weight.py
 
 # Upload model + Parquet datasets to Hugging Face
 HF_TOKEN=hf_... HF_REPO_ID=user/repo uv run python scripts/upload_to_hf.py
@@ -641,6 +728,37 @@ uv run python scripts/find_value_bets.py --league "Liga Portugal"
 # Single match prediction
 uv run python scripts/predict_match.py --home "Benfica" --away "Porto" --league P1
 ```
+
+### European club competitions
+
+Champions / Europa / Conference League. These exist to **calibrate ratings
+across leagues**, not merely to add fixtures: each domestic league is a
+near-closed pool, so without real cross-league matches its ELO ratings are not
+comparable with any other league's.
+
+```bash
+# Team registries — the historical one is what alias resolution matches against
+uv run python scripts/build_teams_registry.py
+uv run python scripts/build_teams_registry.py --all-seasons
+
+# Fetch and parse the openfootball corpus into datasets/european/
+uv run python scripts/build_european_corpus.py
+
+# Reconcile openfootball names with the canonical registry, then review them
+uv run python scripts/queue_european_team_names.py --push
+uv run python scripts/review_team_names.py          # http://127.0.0.1:8765
+
+# Export the approvals into the committed seed, then commit it. CI is given no
+# Supabase credentials, so this is the only route by which approved aliases
+# reach training — skip it and the calibration silently does nothing there.
+uv run python scripts/export_team_aliases.py
+```
+
+Name reconciliation is a prerequisite for the calibration to have any effect —
+ELO is keyed by the team-name string, so an unresolved name creates a separate
+rating and the pools never link.
+
+Full documentation: **[docs/european-competitions.md](docs/european-competitions.md)**
 
 ### Tests
 

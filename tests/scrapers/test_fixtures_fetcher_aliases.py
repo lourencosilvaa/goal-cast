@@ -195,7 +195,12 @@ class TestSupabaseAvailability:
         repository = module._build_alias_repository(config)
         assert isinstance(repository, ChainedTeamAliasRepository)
         # The reviewed seed still answers, so committed aliases keep working.
-        assert repository.get_aliases() == []
+        # This is load-bearing, not incidental: CI is given no Supabase
+        # credentials on purpose, so the committed seed is the *only* place
+        # the approved European aliases can reach training from.
+        aliases = repository.get_aliases()
+        assert aliases, "the committed seed must answer when Supabase is absent"
+        assert any(alias.league_code.startswith("EU-") for alias in aliases)
 
     def test_unresolved_sink_is_absent_without_supabase(self, monkeypatch):
         import src.scrapers.fixtures_fetcher as module

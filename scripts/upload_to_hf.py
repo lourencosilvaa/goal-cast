@@ -20,16 +20,24 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 load_dotenv()
+
+from config.config_loader import load_config  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Upload model artefacts and datasets to HF Hub")
+    parser = argparse.ArgumentParser(
+        description="Upload model artefacts and datasets to HF Hub"
+    )
     parser.add_argument(
         "--models-dir",
         default=os.environ.get("MODELS_DIR", "output/models"),
@@ -66,6 +74,53 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+#: Name the Space looks for when loading cross-league history.
+EUROPEAN_DATASET = "european.parquet"
+
+#: Columns the loader adds itself and therefore must survive the trim.
+#: ``Season`` is what ``_load_from_hf_parquet`` filters on; ``League`` is
+#: filled in on read when absent, so it need not be uploaded.
+EXTRA_DATASET_COLUMNS = ("Season", "League")
+
+
+def _keep_columns(frame: "pd.DataFrame", config: object) -> "pd.DataFrame":
+    """Drop columns the loader discards on read.
+
+    Both readers apply ``columns_to_keep`` immediately after ``read_parquet``,
+    so anything outside it is dead weight — and the *cause* of the upload
+    failing: old football-data extras like ``BbAH`` read as int64 in one
+    season and object in another, and concatenating seasons yields a column
+    pyarrow refuses to write. Trimming is lossless by construction.
+    """
+    wanted = list(config.data.columns_to_keep) + list(  # type: ignore[attr-defined]
+        EXTRA_DATASET_COLUMNS
+    )
+    available = [column for column in wanted if column in frame.columns]
+    return frame[available]
+
+
+def _normalise_dtypes(frame: "pd.DataFrame") -> "pd.DataFrame":
+    """Give every object column a single, writable type.
+
+    A belt-and-braces guard for the columns that *are* kept: if a future
+    season introduces a stray value in, say, ``HS``, the concatenated column
+    would again hold two types. Numeric where every value converts, string
+    otherwise — deterministic either way, and never a mix.
+    """
+    import pandas as pd
+
+    result = frame.copy()
+    for column in result.columns:
+        if result[column].dtype != object:
+            continue
+        numeric = pd.to_numeric(result[column], errors="coerce")
+        if numeric.notna().sum() == result[column].notna().sum():
+            result[column] = numeric
+        else:
+            result[column] = result[column].astype("string")
+    return result
+
+
 def _build_parquet_datasets(cache_dir: Path, tmp_dir: Path) -> dict[str, Path]:
     """Convert per-season CSVs to per-league Parquet files.
 
@@ -73,7 +128,9 @@ def _build_parquet_datasets(cache_dir: Path, tmp_dir: Path) -> dict[str, Path]:
     """
     import pandas as pd
 
-    csv_files = list(cache_dir.glob("????_??.csv")) + list(cache_dir.glob("????_???.csv"))
+    csv_files = list(cache_dir.glob("????_??.csv")) + list(
+        cache_dir.glob("????_???.csv")
+    )
     if not csv_files:
         print(f"WARNING: no season CSV files found in {cache_dir}")
         return {}
@@ -105,14 +162,37 @@ def _build_parquet_datasets(cache_dir: Path, tmp_dir: Path) -> dict[str, Path]:
             continue
 
         combined = pd.concat(frames, ignore_index=True)
+        combined = _normalise_dtypes(_keep_columns(combined, load_config()))
         parquet_path = datasets_dir / f"{league}.parquet"
         combined.to_parquet(parquet_path, index=False)
         total_rows = len(combined)
         size_kb = parquet_path.stat().st_size / 1024
-        print(f"  {league}.parquet  {len(season_files)} seasons  {total_rows} rows  {size_kb:.1f} KB")
+        print(
+            f"  {league}.parquet  {len(season_files)} seasons  {total_rows} rows  {size_kb:.1f} KB"
+        )
         result[league] = parquet_path
 
     return result
+
+
+def _build_european_dataset(config: object, datasets_dir: Path) -> Path | None:
+    """Write the translated European corpus for the Space to read.
+
+    Uploaded already translated to canonical keys, so the Space never needs
+    Supabase or the alias registry — it just reads the same rows training
+    used, which is what keeps its ELO features identical to the model's.
+    """
+    from src.corpus.european_corpus import load_european_corpus
+
+    corpus = load_european_corpus(config, verbose=False)
+    if corpus.empty:
+        print("  no European corpus to upload (ratings will not be cross-league)")
+        return None
+    path = datasets_dir / EUROPEAN_DATASET
+    corpus.to_parquet(path, index=False)
+    size_kb = path.stat().st_size / 1024
+    print(f"  {EUROPEAN_DATASET}  {len(corpus)} matches  {size_kb:.1f} KB")
+    return path
 
 
 def main(api: object | None = None) -> None:
@@ -153,10 +233,18 @@ def main(api: object | None = None) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         parquet_files = _build_parquet_datasets(cache_dir, tmp_path)
+        # Cross-league history for the Space, already translated to canonical
+        # keys so it needs neither Supabase nor the alias registry.
+        european = _build_european_dataset(load_config(), tmp_path / "datasets")
+        dataset_count = len(parquet_files) + (1 if european else 0)
 
         if args.dry_run:
-            print(f"\n[dry-run] Would upload {len(artefacts)} model artefacts to: {args.repo_id}")
-            print(f"[dry-run] Would upload {len(parquet_files)} Parquet dataset files to: {args.repo_id}/datasets/")
+            print(
+                f"\n[dry-run] Would upload {len(artefacts)} model artefacts to: {args.repo_id}"
+            )
+            print(
+                f"[dry-run] Would upload {dataset_count} Parquet dataset files to: {args.repo_id}/datasets/"
+            )
             return
 
         if api is None:
@@ -187,7 +275,9 @@ def main(api: object | None = None) -> None:
 
         if parquet_files:
             datasets_dir = tmp_path / "datasets"
-            print(f"\nUploading {len(parquet_files)} Parquet dataset files to {args.repo_id}/datasets/ …")
+            print(
+                f"\nUploading {len(parquet_files)} Parquet dataset files to {args.repo_id}/datasets/ …"
+            )
             api.upload_folder(
                 folder_path=str(datasets_dir),
                 repo_id=args.repo_id,

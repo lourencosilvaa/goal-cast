@@ -53,6 +53,21 @@ export function MatchSummaryCard({ match, index, selected, onSelect }: MatchSumm
             {(bestEdge).toFixed(1)}%
           </span>
         )}
+        {/*
+          Shown only when the writer recorded a model, which today means a
+          cross-league fixture predicted by ratings alone. A domestic
+          prediction carries no label and gets no badge, so the absence is
+          what marks the default rather than a name that has to be kept in
+          sync here.
+        */}
+        {match.model && (
+          <span
+            className="text-[10px] px-2 py-0.5 rounded-full bg-fg-subtle/10 text-fg-subtle border border-fg-subtle/20 font-medium uppercase tracking-wide"
+            title={`Predicted by ${match.model} — not the domestic ensemble`}
+          >
+            {match.model}
+          </span>
+        )}
         <span className="ml-auto text-[11px] text-fg-subtle">{match.league}</span>
         <ChevronRight className="w-4 h-4 text-fg-subtle" />
       </div>

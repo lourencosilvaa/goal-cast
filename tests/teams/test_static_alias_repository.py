@@ -71,17 +71,36 @@ class TestShippedSeedFile:
         )
 
     def test_seed_entries_point_at_real_teams(self):
-        """Every committed alias must name a team that exists in the registry."""
+        """Every committed alias must name a team that exists in the registry.
+
+        Two registries are consulted, because two kinds of scope live here.
+        A league code like ``P1`` is checked against the current-season
+        registry. A European scope like ``EU-POR`` is not a league at all — it
+        is a country, resolved through ``european.country_leagues`` — and it is
+        checked against the *historical* registry, because a club can qualify
+        for Europe and then be relegated out of its top division. Vitesse and
+        Sivasspor are both in the corpus and in neither current-season league.
+        """
         from config.config_loader import load_config
 
         config = load_config("config/config.yaml")
-        registry = load_team_registry(config.teams.registry_path)
+        current = load_team_registry(config.teams.registry_path)
+        historical = load_team_registry(config.teams.historical_registry_path)
+        prefix = f"{config.european.alias_scope}-"
+
+        def known_teams(scope: str) -> set[str]:
+            if not scope.startswith(prefix):
+                return set(current.get(scope, []))
+            country = scope[len(prefix) :]
+            leagues = config.european.country_leagues.get(country, [])
+            return {team for league in leagues for team in historical.get(league, [])}
+
         broken = [
             alias
             for alias in StaticTeamAliasRepository(
                 config.teams.aliases.seed_path
             ).get_aliases()
-            if alias.canonical_name not in registry.get(alias.league_code, [])
+            if alias.canonical_name not in known_teams(alias.league_code)
         ]
         assert not broken, f"seed aliases naming unknown teams: {broken}"
 

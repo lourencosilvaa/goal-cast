@@ -65,6 +65,13 @@ export interface MatchPrediction {
   top_scorelines: Scoreline[] | null;
   form: Form | null;
   value_bets: ValueBet[];
+  /**
+   * Which model produced this prediction, when the writer recorded one.
+   * `null` means the domestic calibrated ensemble. European fixtures carry
+   * `"elo"` — they are predicted by ratings alone and displayed identically,
+   * so the label is the only thing telling them apart.
+   */
+  model: string | null;
 }
 
 export interface LeaguePredictions {

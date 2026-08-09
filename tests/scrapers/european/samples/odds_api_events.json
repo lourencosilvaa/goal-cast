@@ -1,0 +1,26 @@
+[
+ {
+  "id": "9495fba16433b26525c818b794813b74",
+  "sport_key": "soccer_uefa_champs_league_qualification",
+  "sport_title": "UEFA Champions League Qualification",
+  "commence_time": "2026-08-11T15:00:00Z",
+  "home_team": "FC Kairat",
+  "away_team": "PFC Levski Sofia"
+ },
+ {
+  "id": "106fdd39d0bd9f6dbf54bc767754171e",
+  "sport_key": "soccer_uefa_champs_league_qualification",
+  "sport_title": "UEFA Champions League Qualification",
+  "commence_time": "2026-08-11T16:00:00Z",
+  "home_team": "Sabah FK",
+  "away_team": "AGF Aarhus"
+ },
+ {
+  "id": "a688ea4519b25895e9a76cb4287902f7",
+  "sport_key": "soccer_uefa_champs_league_qualification",
+  "sport_title": "UEFA Champions League Qualification",
+  "commence_time": "2026-08-11T16:00:00Z",
+  "home_team": "Bod\u00f8/Glimt",
+  "away_team": "Union Saint-Gilloise"
+ }
+]

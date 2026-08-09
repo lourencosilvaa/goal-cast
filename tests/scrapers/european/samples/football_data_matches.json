@@ -1,0 +1,149 @@
+{
+ "resultSet": {
+  "count": 3,
+  "first": "2026-05-05",
+  "last": "2026-05-30",
+  "played": 3
+ },
+ "competition": {
+  "id": 2001,
+  "name": "UEFA Champions League",
+  "code": "CL",
+  "type": "CUP",
+  "emblem": "https://crests.football-data.org/CL.png"
+ },
+ "matches": [
+  {
+   "area": {
+    "id": 2077,
+    "name": "Europe",
+    "code": "EUR",
+    "flag": "https://crests.football-data.org/EUR.svg"
+   },
+   "competition": {
+    "id": 2001,
+    "name": "UEFA Champions League",
+    "code": "CL",
+    "type": "CUP",
+    "emblem": "https://crests.football-data.org/CL.png"
+   },
+   "season": {
+    "id": 2454,
+    "startDate": "2025-09-16",
+    "endDate": "2026-05-30",
+    "currentMatchday": 8,
+    "winner": null
+   },
+   "id": 552095,
+   "utcDate": "2026-05-05T19:00:00Z",
+   "status": "FINISHED",
+   "matchday": 2,
+   "stage": "SEMI_FINALS",
+   "group": null,
+   "lastUpdated": "2026-06-13T20:20:17Z",
+   "homeTeam": {
+    "id": 57,
+    "name": "Arsenal FC",
+    "shortName": "Arsenal",
+    "tla": "ARS",
+    "crest": "https://crests.football-data.org/57.png"
+   },
+   "awayTeam": {
+    "id": 78,
+    "name": "Club Atl\u00e9tico de Madrid",
+    "shortName": "Atleti",
+    "tla": "ATL",
+    "crest": "https://crests.football-data.org/78.png"
+   },
+   "score": {
+    "winner": "HOME_TEAM",
+    "duration": "REGULAR",
+    "fullTime": {
+     "home": 1,
+     "away": 0
+    },
+    "halfTime": {
+     "home": 1,
+     "away": 0
+    }
+   },
+   "odds": {
+    "msg": "Activate Odds-Package in User-Panel to retrieve odds."
+   },
+   "referees": [
+    {
+     "id": 15408,
+     "name": "Daniel Siebert",
+     "type": "REFEREE",
+     "nationality": "Germany"
+    }
+   ]
+  },
+  {
+   "area": {
+    "id": 2077,
+    "name": "Europe",
+    "code": "EUR",
+    "flag": "https://crests.football-data.org/EUR.svg"
+   },
+   "competition": {
+    "id": 2001,
+    "name": "UEFA Champions League",
+    "code": "CL",
+    "type": "CUP",
+    "emblem": "https://crests.football-data.org/CL.png"
+   },
+   "season": {
+    "id": 2454,
+    "startDate": "2025-09-16",
+    "endDate": "2026-05-30",
+    "currentMatchday": 8,
+    "winner": null
+   },
+   "id": 552094,
+   "utcDate": "2026-05-06T19:00:00Z",
+   "status": "FINISHED",
+   "matchday": 2,
+   "stage": "SEMI_FINALS",
+   "group": null,
+   "lastUpdated": "2026-06-13T20:20:17Z",
+   "homeTeam": {
+    "id": 5,
+    "name": "FC Bayern M\u00fcnchen",
+    "shortName": "Bayern",
+    "tla": "FCB",
+    "crest": "https://crests.football-data.org/5.png"
+   },
+   "awayTeam": {
+    "id": 524,
+    "name": "Paris Saint-Germain FC",
+    "shortName": "PSG",
+    "tla": "PSG",
+    "crest": "https://crests.football-data.org/524.png"
+   },
+   "score": {
+    "winner": "DRAW",
+    "duration": "REGULAR",
+    "fullTime": {
+     "home": 1,
+     "away": 1
+    },
+    "halfTime": {
+     "home": 0,
+     "away": 1
+    }
+   },
+   "odds": {
+    "msg": "Activate Odds-Package in User-Panel to retrieve odds."
+   },
+   "referees": [
+    {
+     "id": 38806,
+     "name": "Jo\u00e3o Pinheiro",
+     "type": "REFEREE",
+     "nationality": "Portugal"
+    }
+   ]
+  }
+ ]
+}

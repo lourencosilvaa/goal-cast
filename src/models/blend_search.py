@@ -16,6 +16,15 @@ from sklearn.metrics import log_loss
 _LABELS = [0, 1, 2]
 
 
+def multiclass_log_loss(proba: np.ndarray, y_true: np.ndarray) -> float:
+    """Log-loss over the 1X2 classes, with the label set stated explicitly.
+
+    Shared so every blend measurement in the project scores the same way, and
+    so sklearn is imported in exactly one module.
+    """
+    return float(log_loss(y_true, proba, labels=_LABELS))
+
+
 @dataclass
 class BlendSweepResult:
     """Outcome of a blend-weight sweep."""
@@ -60,7 +69,7 @@ class BlendWeightSweeper:
             # Both inputs sum to 1, so the mix does too; renormalize
             # defensively against floating-point drift.
             blended = blended / blended.sum(axis=1, keepdims=True)
-            loss = float(log_loss(y_true, blended, labels=_LABELS))
+            loss = multiclass_log_loss(blended, y_true)
             per_weight.append((w, loss))
 
         best_weight, best_log_loss = min(per_weight, key=lambda item: item[1])

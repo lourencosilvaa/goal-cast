@@ -5,22 +5,139 @@
 # approved by an admin at runtime live in the Supabase `team_aliases` table
 # instead. Both are consulted; neither is guessed.
 #
-# Keys are the *scraped* spelling (FlashScore), values the *canonical*
-# football-data.co.uk spelling used by every model and data set here. Matching
-# ignores case and surrounding whitespace. An alias whose value is not a real
-# team in `teams.registry_path` is rejected at resolution time and flagged by
-# `tests/teams/test_static_alias_repository.py`.
+# Keys are the *scraped* spelling (FlashScore, or openfootball for the `EU-*`
+# scopes), values the *canonical* football-data.co.uk spelling used by every
+# model and data set here. Matching ignores case and surrounding whitespace.
+# An alias whose value is not a real team is rejected at resolution time and
+# flagged by `tests/teams/test_static_alias_repository.py`.
 #
-# Example:
+# Two kinds of key appear here:
 #
-# aliases:
-#   P1:
-#     "Sporting CP": "Sp Lisbon"
-#     "Sporting Braga": "Sp Braga"
-#   E0:
-#     "Manchester City": "Man City"
-#     "Manchester Utd": "Man United"
+#   P1, E0, ...   a league code; the alias applies within that league
+#   EU-POR, ...   a *country* scope for UEFA competitions, so one approval
+#                 covers the Champions, Europa and Conference Leagues alike
 #
-# Left empty on purpose: every mapping must be verified by a human against the
-# registry before it is added.
-aliases: {}
+# The `EU-*` entries below are generated — approve names in the admin panel or
+# `scripts/review_team_names.py`, then run:
+#
+#     uv run python scripts/export_team_aliases.py
+#
+# and commit the result. That export is not optional bookkeeping: CI is given
+# no Supabase credentials, so this file is the only route by which approved
+# aliases reach training. Without it the cross-league ELO calibration silently
+# does nothing. See docs/european-competitions.md §10.
+#
+# Every mapping is verified by a human against the registry before it lands —
+# nothing here is inferred from similarity.
+aliases:
+  EU-BEL:
+    Club Brugge KV: Club Brugge
+    KAA Gent: Gent
+    KRC Genk: Genk
+    RSC Anderlecht: Anderlecht
+    Royal Antwerp FC: Antwerp
+    Royale Union Saint-Gilloise: St. Gilloise
+    Standard Liège: Standard
+    Union Saint-Gilloise: St. Gilloise
+  EU-ENG:
+    Arsenal FC: Arsenal
+    Aston Villa FC: Aston Villa
+    Brighton & Hove Albion: Brighton
+    Chelsea FC: Chelsea
+    Leicester City: Leicester
+    Liverpool FC: Liverpool
+    Manchester City: Man City
+    Manchester City FC: Man City
+    Manchester United: Man United
+    Manchester United FC: Man United
+    Newcastle United FC: Newcastle
+    Tottenham Hotspur: Tottenham
+    Tottenham Hotspur FC: Tottenham
+    West Ham United: West Ham
+  EU-ESP:
+    Athletic Club: Ath Bilbao
+    Atlético Madrid: Ath Madrid
+    Club Atlético de Madrid: Ath Madrid
+    FC Barcelona: Barcelona
+    Girona FC: Girona
+    Granada CF: Granada
+    Real Betis: Betis
+    Real Madrid CF: Real Madrid
+    Real Sociedad: Sociedad
+    Real Sociedad de Fútbol: Sociedad
+    Sevilla FC: Sevilla
+    Valencia CF: Valencia
+    Villarreal CF: Villarreal
+  EU-FRA:
+    AS Monaco: Monaco
+    FC Nantes: Nantes
+    Lille OSC: Lille
+    OGC Nice: Nice
+    Olympique Lyonnais: Lyon
+    Olympique Marseille: Marseille
+    Olympique de Marseille: Marseille
+    Paris Saint-Germain: Paris SG
+    Paris Saint-Germain FC: Paris SG
+    RC Lens: Lens
+    Racing Club de Lens: Lens
+    Stade Brestois 29: Brest
+    Stade Rennais: Rennes
+    Toulouse FC: Toulouse
+  EU-GER:
+    1. FC Heidenheim 1846: Heidenheim
+    1. FC Köln: FC Koln
+    1. FC Union Berlin: Union Berlin
+    1899 Hoffenheim: Hoffenheim
+    Bayer 04 Leverkusen: Leverkusen
+    Bayer Leverkusen: Leverkusen
+    Bayern München: Bayern Munich
+    Bor. Mönchengladbach: M'gladbach
+    Borussia Dortmund: Dortmund
+    Eintracht Frankfurt: Ein Frankfurt
+    FC Bayern München: Bayern Munich
+    FC Schalke 04: Schalke 04
+    SC Freiburg: Freiburg
+    VfB Stuttgart: Stuttgart
+    VfL Wolfsburg: Wolfsburg
+  EU-GRE:
+    AEK Athen: AEK
+    Olympiakos Piraeus: Olympiakos
+    PAE Olympiakos SFP: Olympiakos
+    PAOK Saloniki: PAOK
+  EU-ITA:
+    AC Milan: Milan
+    ACF Fiorentina: Fiorentina
+    AS Roma: Roma
+    Atalanta BC: Atalanta
+    Bologna FC 1909: Bologna
+    FC Internazionale Milano: Inter
+    Juventus FC: Juventus
+    Lazio Roma: Lazio
+    SS Lazio: Lazio
+    SSC Napoli: Napoli
+  EU-MCO:
+    AS Monaco FC: Monaco
+  EU-NED:
+    AFC Ajax: Ajax
+    FC Twente: Twente
+    Feyenoord Rotterdam: Feyenoord
+    PSV: PSV Eindhoven
+  EU-POR:
+    FC Porto: Porto
+    SL Benfica: Benfica
+    Sport Lisboa e Benfica: Benfica
+    Sporting Braga: Sp Braga
+    Sporting CP: Sp Lisbon
+    Sporting Clube de Braga: Sp Braga
+    Sporting Clube de Portugal: Sp Lisbon
+    Vitória Guimarães: Guimaraes
+  EU-SCO:
+    Aberdeen FC: Aberdeen
+    Celtic FC: Celtic
+    Heart of Midlothian: Hearts
+    Rangers FC: Rangers
+  EU-TUR:
+    Beşiktaş: Besiktas
+    Fenerbahçe: Fenerbahce
+    Galatasaray SK: Galatasaray
+    İstanbul Başakşehir: Buyuksehyr

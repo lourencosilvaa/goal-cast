@@ -18,6 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import joblib
 
 from config.config_loader import load_config
+from src.corpus.european_corpus import load_european_corpus
+from src.models.cross_competition import (
+    CrossCompetitionCorpus,
+    CrossCompetitionEloBuilder,
+)
 from src.models.data_cleaner import DataCleaner
 from src.models.data_loader import FootballDataLoader
 from src.models.elo import FootballELO
@@ -84,9 +89,7 @@ def main() -> None:
     parser.add_argument(
         "--local-data", default=None, help="Path to local CSV data file"
     )
-    parser.add_argument(
-        "--output", default=None, help="Output directory for model"
-    )
+    parser.add_argument("--output", default=None, help="Output directory for model")
     parser.add_argument(
         "--force", action="store_true", help="Force retraining even if model is current"
     )
@@ -110,11 +113,14 @@ def main() -> None:
 
     # Check if retraining is needed
     import pandas as pd
+
     cache_manager = ModelCacheManager(models_dir=output_dir)
     latest_date: pd.Timestamp | None = None
     if "Date" in raw_data.columns:
         try:
-            latest_date = pd.to_datetime(raw_data["Date"], dayfirst=True, errors="coerce").max()
+            latest_date = pd.to_datetime(
+                raw_data["Date"], dayfirst=True, errors="coerce"
+            ).max()
         except Exception:
             pass
 
@@ -153,10 +159,27 @@ def main() -> None:
     featured_data = engineer.build_all_features(clean_data)
     print(f"Matches with features: {len(featured_data)}")
 
-    # ELO ratings
+    # European history (goals only), used to calibrate ratings across leagues.
+    european = load_european_corpus(config)
+    corpus = CrossCompetitionCorpus(domestic=featured_data, supplementary=european)
+
+    # ELO ratings. Domestic leagues are near-closed pools, so without real
+    # cross-league matches every league's ratings float independently and are
+    # not comparable. European results link them: they update the same rating
+    # pool but never enter the training matrix.
     print("\n=== Computing ELO Ratings ===")
     elo = FootballELO(config.features.elo)
-    featured_data = elo.compute_elo_features(featured_data)
+    featured_data = CrossCompetitionEloBuilder(elo).build(corpus)
+    if corpus.has_supplementary:
+        print(
+            f"Cross-league calibration: {len(european)} European matches "
+            f"linking {featured_data['League'].nunique()} leagues"
+        )
+    else:
+        print(
+            "WARNING: no European history — ELO and Dixon-Coles ratings are "
+            "NOT comparable across leagues. See docs/european-competitions.md."
+        )
     print("Top 5 teams by ELO:")
     for team, rating in elo.get_top_teams(5):
         print(f"  {team:25s} {rating:.0f}")
@@ -164,9 +187,7 @@ def main() -> None:
     # Train models
     print("\n=== Training Models ===")
     weighter = (
-        TimeDecayWeighter(config.model.time_decay)
-        if config.model.time_decay
-        else None
+        TimeDecayWeighter(config.model.time_decay) if config.model.time_decay else None
     )
     if weighter and weighter.enabled:
         half_life = config.model.time_decay.half_life_days
@@ -191,12 +212,24 @@ def main() -> None:
     poisson_cfg = config.model.poisson
     if poisson_cfg and poisson_cfg.enabled:
         print("\n=== Training Dixon-Coles Poisson Model ===")
-        poisson = DixonColesModel(poisson_cfg).fit(clean_data)
-        print(f"Fitted {len(poisson.attack)} teams; "
-              f"home advantage: {poisson.home_advantage:.3f}, rho: {poisson.rho:.3f}")
+        # Fitted on domestic *and* European goals: attack/defence strengths are
+        # otherwise unidentified across leagues, since no domestic match ever
+        # connects a Portuguese team to an English one.
+        goals = CrossCompetitionCorpus(
+            domestic=clean_data, supplementary=european
+        ).combined_goals()
+        poisson = DixonColesModel(poisson_cfg).fit(goals)
+        print(
+            f"Fitted {len(poisson.attack)} teams; "
+            f"home advantage: {poisson.home_advantage:.3f}, rho: {poisson.rho:.3f}"
+        )
 
     # Save model
-    last_match_date_str = latest_date.strftime("%Y-%m-%d") if latest_date and not pd.isna(latest_date) else None
+    last_match_date_str = (
+        latest_date.strftime("%Y-%m-%d")
+        if latest_date and not pd.isna(latest_date)
+        else None
+    )
     trainer.save_model(output_dir, last_match_date=last_match_date_str)
 
     if poisson_cfg and poisson_cfg.enabled:

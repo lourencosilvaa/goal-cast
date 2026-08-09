@@ -12,10 +12,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from config.config_loader import TeamAliasConfig
+from config.config_loader import EuropeanConfig, TeamAliasConfig
 from src.backend.api.admin import get_admin_user
 from src.backend.api.team_aliases import (
     get_alias_config,
+    get_european_config,
     get_alias_service,
     get_team_repository,
     router,
@@ -39,6 +40,11 @@ PENDING_ROW = {
     "status": "pending",
 }
 TEAMS = {"P1": ["Sp Lisbon", "Porto", "Benfica"], "E0": ["Arsenal"]}
+#: Stated explicitly (§7.3) — the country→league map decides which teams a
+#: queued European name may be matched against.
+EUROPEAN_CONFIG = EuropeanConfig(
+    country_leagues={"POR": ["P1"], "ENG": ["E0"]}, alias_scope="EU"
+)
 
 
 def client(service: MagicMock, teams: dict | None = None) -> TestClient:
@@ -47,6 +53,7 @@ def client(service: MagicMock, teams: dict | None = None) -> TestClient:
     app.dependency_overrides[get_admin_user] = lambda: "admin-1"
     app.dependency_overrides[get_alias_service] = lambda: service
     app.dependency_overrides[get_alias_config] = lambda: ALIAS_CONFIG
+    app.dependency_overrides[get_european_config] = lambda: EUROPEAN_CONFIG
     repo = AsyncMock()
     repo.get_teams.return_value = TEAMS if teams is None else teams
     app.dependency_overrides[get_team_repository] = lambda: repo
@@ -214,3 +221,112 @@ class TestAuthorisation:
     @pytest.mark.parametrize("method,path", [("GET", "/api/admin/team-aliases")])
     def test_routes_live_under_the_admin_namespace(self, method, path):
         assert path.startswith("/api/admin/")
+
+
+class TestEuropeanScopes:
+    """UEFA names arrive under a scope that encodes their country.
+
+    There is no "EU-POR" league in the registry, so both listing and approval
+    have to understand the scope — otherwise every European approval is
+    rejected as an unknown league and the queue is unusable.
+    """
+
+    def _pending(self, raw_name: str, scope: str = "EU-POR") -> dict:
+        return {
+            "league_code": scope,
+            "raw_name": raw_name,
+            "canonical_name": None,
+            "status": "pending",
+        }
+
+    def test_country_is_reported(self):
+        service = service_with([self._pending("Sport Lisboa e Benfica")])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert body["pending"][0]["country"] == "POR"
+
+    def test_domestic_entries_carry_no_country(self):
+        service = service_with([PENDING_ROW])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert body["pending"][0]["country"] is None
+
+    def test_suggestions_come_from_that_country(self):
+        service = service_with([self._pending("Sport Lisboa e Benfica")])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert set(body["pending"][0]["suggestions"]) <= set(TEAMS["P1"])
+
+    def test_suggestions_never_come_from_another_country(self):
+        """An English side must never be offered for a Portuguese entry."""
+        service = service_with([self._pending("Arsenal FC")])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert "Arsenal" not in body["pending"][0]["suggestions"]
+
+    def test_untracked_country_gets_no_suggestions(self):
+        service = service_with([self._pending("AC Sparta Praha", scope="EU-CZE")])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert body["pending"][0]["suggestions"] == []
+
+    def test_approval_accepts_a_team_from_that_country(self):
+        service = service_with([])
+        response = client(service).post(
+            "/api/admin/team-aliases",
+            json={
+                "league_code": "EU-POR",
+                "raw_name": "Sport Lisboa e Benfica",
+                "canonical_name": "Benfica",
+            },
+        )
+        assert response.status_code == 200
+        service.approve.assert_called_once()
+
+    def test_approval_rejects_a_team_from_another_country(self):
+        service = service_with([])
+        response = client(service).post(
+            "/api/admin/team-aliases",
+            json={
+                "league_code": "EU-POR",
+                "raw_name": "Sport Lisboa e Benfica",
+                "canonical_name": "Arsenal",
+            },
+        )
+        assert response.status_code == 422
+
+    def test_approval_rejects_an_untracked_country(self):
+        service = service_with([])
+        response = client(service).post(
+            "/api/admin/team-aliases",
+            json={
+                "league_code": "EU-CZE",
+                "raw_name": "AC Sparta Praha",
+                "canonical_name": "Sp Lisbon",
+            },
+        )
+        assert response.status_code == 422
+
+    def test_domestic_approval_is_unaffected(self):
+        service = service_with([])
+        response = client(service).post(
+            "/api/admin/team-aliases",
+            json={
+                "league_code": "P1",
+                "raw_name": "Sporting CP",
+                "canonical_name": "Sp Lisbon",
+            },
+        )
+        assert response.status_code == 200
+
+    def test_options_cover_the_whole_country(self):
+        """The picker must offer every team of that country, not only the
+        few names similar enough to be suggested."""
+        service = service_with([self._pending("Sport Lisboa e Benfica")])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert set(body["pending"][0]["options"]) == set(TEAMS["P1"])
+
+    def test_domestic_options_are_that_league(self):
+        service = service_with([PENDING_ROW])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert set(body["pending"][0]["options"]) == set(TEAMS["P1"])
+
+    def test_untracked_country_offers_nothing(self):
+        service = service_with([self._pending("AC Sparta Praha", scope="EU-CZE")])
+        body = client(service).get("/api/admin/team-aliases").json()
+        assert body["pending"][0]["options"] == []

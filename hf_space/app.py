@@ -31,6 +31,10 @@ from src.analysis.team_insights import (
 )
 from src.models.data_cleaner import DataCleaner
 from src.models.data_loader import FootballDataLoader
+from src.models.cross_competition import (
+    CrossCompetitionCorpus,
+    CrossCompetitionEloBuilder,
+)
 from src.models.elo import FootballELO
 from src.models.feature_engineer import FeatureEngineer
 from src.models.predictor import MatchPredictor
@@ -319,15 +323,47 @@ def _extract_teams_by_league(df: pd.DataFrame) -> dict[str, list[str]]:
     return result
 
 
+#: Cross-league history uploaded alongside the per-league Parquet datasets.
+#: Already translated to canonical team keys, so the Space needs no registry
+#: or alias source of its own.
+EUROPEAN_DATASET = "european.parquet"
+
+
+def _load_european_corpus(config: SpaceConfig) -> pd.DataFrame:
+    """European results the model was calibrated on, or an empty frame.
+
+    Absent on an older snapshot, which must keep working — it just means the
+    ELO ratings are not comparable across leagues, exactly as before.
+    """
+    path = (
+        Path(config.huggingface.local_dir)
+        / config.huggingface.dataset_subfolder
+        / EUROPEAN_DATASET
+    )
+    if not path.is_file():
+        return pd.DataFrame()
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        return pd.DataFrame()
+
+
 def _engineer_features(df: pd.DataFrame, config: SpaceConfig) -> pd.DataFrame:
     if df.empty:
         return df
     try:
         fe = FeatureEngineer(config.features)
         df = fe.build_all_features(df)
+        # The same builder and corpus training used. A fixture's elo_home is
+        # read from that team's last historical row, so reproducing it means
+        # replaying the identical chronological walk — serving uncalibrated
+        # ratings to a model trained on calibrated ones is worse than never
+        # calibrating, because the features stop meaning what it learned.
+        european = _load_european_corpus(config)
         elo = FootballELO(config.features.elo)
-        df = elo.compute_elo_features(df)
-        return df
+        return CrossCompetitionEloBuilder(elo).build(
+            CrossCompetitionCorpus(domestic=df, supplementary=european)
+        )
     except Exception:
         return pd.DataFrame()
 
