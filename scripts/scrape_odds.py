@@ -25,21 +25,22 @@ def main() -> None:
         "--config", default="config/config.yaml", help="Path to config file"
     )
     parser.add_argument(
-        "--league", default=None,
+        "--league",
+        default=None,
         help="Division code(s), comma-separated (e.g. E0,D1,I1). "
-             "Use --list-leagues to see codes.",
+        "Use --list-leagues to see codes.",
     )
     parser.add_argument(
-        "--date", default=None,
+        "--date",
+        default=None,
         help="Date in DD/MM/YYYY format. Defaults to today.",
     )
     parser.add_argument(
-        "--list-leagues", action="store_true",
+        "--list-leagues",
+        action="store_true",
         help="List supported league codes and exit.",
     )
-    parser.add_argument(
-        "--output", default=None, help="Output file for results"
-    )
+    parser.add_argument("--output", default=None, help="Output file for results")
     args = parser.parse_args()
 
     if args.list_leagues:

@@ -33,7 +33,9 @@ from src.models.cross_competition import (
     CrossCompetitionEloBuilder,
 )
 from src.models.elo import FootballELO
+from src.models.cross_league import match_counts
 from src.models.feature_engineer import FeatureEngineer
+from src.models.fixture_features import FixtureFeatureBuilder, FixtureTeams
 from src.models.predictor import MatchPrediction, MatchPredictor
 from src.scrapers.fixtures_fetcher import (
     Fixture,
@@ -119,15 +121,11 @@ def _for_league(featured_data: pd.DataFrame, league_code: str) -> pd.DataFrame:
 def _match_counts(featured_data: pd.DataFrame) -> dict[str, int]:
     """How many matches each team appears in, home or away.
 
-    The gate behind refusing a prediction: a Dixon-Coles parameter fitted on
-    three matches is noise wearing the shape of knowledge.
+    Delegates to :func:`src.models.cross_league.match_counts`, which the Space
+    needs too — the copy that would otherwise have been made there is the same
+    duplication that produced the feature-row bug.
     """
-    if featured_data.empty:
-        return {}
-    appearances = pd.concat(
-        [featured_data["HomeTeam"], featured_data["AwayTeam"]], ignore_index=True
-    )
-    return appearances.value_counts().to_dict()
+    return match_counts(featured_data)
 
 
 def _run_european(
@@ -238,132 +236,23 @@ def _predict_from_odds(fixture: Fixture) -> MatchPrediction:
 
 
 def _predict_fixture(fixture, featured_data, predictor):
-    """Re-uses the PredictionService logic for a single fixture."""
-    home = fixture.home_team
-    away = fixture.away_team
+    """Predict one unplayed fixture from each side's most recent match.
 
+    The feature row is built by the shared
+    :class:`~src.models.fixture_features.FixtureFeatureBuilder`, which the
+    HuggingFace Space uses too. It used to be built here, inline, and the Space
+    had its own version that copied every pair-dependent feature from the home
+    team's previous game — so the two deployments disagreed about the same
+    match. One implementation is the fix; see that module for the detail.
+    """
     if featured_data.empty:
         return _predict_from_odds(fixture)
 
-    home_rows = featured_data[
-        (featured_data["HomeTeam"] == home) | (featured_data["AwayTeam"] == home)
-    ]
-    away_rows = featured_data[
-        (featured_data["HomeTeam"] == away) | (featured_data["AwayTeam"] == away)
-    ]
-
-    league_avg = featured_data.mean(numeric_only=True)
-    home_from_avg = home_rows.empty
-    away_from_avg = away_rows.empty
-    last_home_row = home_rows.iloc[-1] if not home_from_avg else league_avg
-    last_away_row = away_rows.iloc[-1] if not away_from_avg else league_avg
-
-    # When using league averages, treat as if the team is playing in expected position
-    home_was_home = home_from_avg or last_home_row.get("HomeTeam", "") == home
-    away_was_away = away_from_avg or last_away_row.get("AwayTeam", "") == away
-
-    def _get(row, was_expected, expected, opposite):
-        val = row.get(expected if was_expected else opposite, 0)
-        return val if pd.notna(val) else 0
-
-    feature_row: dict = {}
-    for feat in predictor.feature_names:
-        if feat.startswith("home_"):
-            s = feat[len("home_") :]
-            feature_row[feat] = _get(
-                last_home_row, home_was_home, f"home_{s}", f"away_{s}"
-            )
-        elif feat.startswith("away_"):
-            s = feat[len("away_") :]
-            feature_row[feat] = _get(
-                last_away_row, away_was_away, f"away_{s}", f"home_{s}"
-            )
-        elif feat.startswith("diff_"):
-            s = feat[len("diff_") :]
-            h = _get(last_home_row, home_was_home, f"home_{s}", f"away_{s}")
-            a = _get(last_away_row, away_was_away, f"away_{s}", f"home_{s}")
-            feature_row[feat] = h - a
-        elif feat == "elo_home":
-            feature_row[feat] = _get(
-                last_home_row, home_was_home, "elo_home", "elo_away"
-            )
-        elif feat == "elo_away":
-            feature_row[feat] = _get(
-                last_away_row, away_was_away, "elo_away", "elo_home"
-            )
-        elif feat == "elo_diff":
-            h = _get(last_home_row, home_was_home, "elo_home", "elo_away")
-            a = _get(last_away_row, away_was_away, "elo_away", "elo_home")
-            feature_row[feat] = h - a
-        elif feat == "elo_expected_home":
-            feature_row[feat] = _get(
-                last_home_row, home_was_home, "elo_expected_home", "elo_expected_away"
-            )
-        elif feat == "elo_expected_away":
-            feature_row[feat] = _get(
-                last_away_row, away_was_away, "elo_expected_away", "elo_expected_home"
-            )
-        elif feat == "xG_diff":
-            h = _get(last_home_row, home_was_home, "home_xG_rolling", "away_xG_rolling")
-            a = _get(last_away_row, away_was_away, "away_xG_rolling", "home_xG_rolling")
-            feature_row[feat] = h - a
-        elif feat == "rest_advantage":
-            h = _get(last_home_row, home_was_home, "home_rest_days", "away_rest_days")
-            a = _get(last_away_row, away_was_away, "away_rest_days", "home_rest_days")
-            feature_row[feat] = h - a
-        elif feat == "avg_draw_pct":
-            h = _get(last_home_row, home_was_home, "home_draw_pct", "away_draw_pct")
-            a = _get(last_away_row, away_was_away, "away_draw_pct", "home_draw_pct")
-            feature_row[feat] = (h + a) / 2
-        elif feat == "form_gap":
-            h = _get(last_home_row, home_was_home, "home_Form", "away_Form")
-            a = _get(last_away_row, away_was_away, "away_Form", "home_Form")
-            feature_row[feat] = abs(h - a)
-        elif feat == "attack_similarity":
-            h = _get(last_home_row, home_was_home, "home_avg_GF", "away_avg_GF")
-            a = _get(last_away_row, away_was_away, "away_avg_GF", "home_avg_GF")
-            feature_row[feat] = 1 / (1 + abs(h - a))
-        elif feat == "defense_similarity":
-            h = _get(last_home_row, home_was_home, "home_avg_GA", "away_avg_GA")
-            a = _get(last_away_row, away_was_away, "away_avg_GA", "home_avg_GA")
-            feature_row[feat] = 1 / (1 + abs(h - a))
-        elif feat == "combined_defensive":
-            h = _get(last_home_row, home_was_home, "home_avg_GA", "away_avg_GA")
-            a = _get(last_away_row, away_was_away, "away_avg_GA", "home_avg_GA")
-            feature_row[feat] = 1 / (1 + h) + 1 / (1 + a)
-        elif feat == "is_midweek":
-            feature_row[feat] = 0
-        elif feat.startswith("h2h_"):
-            h2h_rows = featured_data[
-                (
-                    (featured_data["HomeTeam"] == home)
-                    & (featured_data["AwayTeam"] == away)
-                )
-                | (
-                    (featured_data["HomeTeam"] == away)
-                    & (featured_data["AwayTeam"] == home)
-                )
-            ]
-            if not h2h_rows.empty:
-                h2h_last = h2h_rows.iloc[-1]
-                h2h_was_home = h2h_last.get("HomeTeam") == home
-                if feat == "h2h_home_wins" and not h2h_was_home:
-                    val = h2h_last.get(feat, 0)
-                    val = 0 if pd.isna(val) else val
-                    draws_val = h2h_last.get("h2h_draws", 0)
-                    draws_val = 0 if pd.isna(draws_val) else draws_val
-                    feature_row[feat] = max(0, 1 - val - draws_val)
-                else:
-                    val = h2h_last.get(feat, 0)
-                    feature_row[feat] = 0 if pd.isna(val) else val
-            else:
-                feature_row[feat] = 0
-        else:
-            val = last_home_row.get(feat, 0)
-            feature_row[feat] = 0 if pd.isna(val) else val
-
-    feature_row["HomeTeam"] = home
-    feature_row["AwayTeam"] = away
+    builder = FixtureFeatureBuilder(featured_data)
+    feature_row = builder.build(
+        FixtureTeams(home=fixture.home_team, away=fixture.away_team),
+        predictor.feature_names,
+    )
 
     match_df = pd.DataFrame([feature_row])
     predictions = predictor.predict(match_df)

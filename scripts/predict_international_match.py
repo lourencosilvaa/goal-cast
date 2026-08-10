@@ -47,8 +47,10 @@ def main() -> None:
     print(f"  Home win: {prediction.home_win_prob:.1%}")
     print(f"  Draw:     {prediction.draw_prob:.1%}")
     print(f"  Away win: {prediction.away_win_prob:.1%}")
-    print(f"  Predicted: {prediction.predicted_outcome} "
-          f"(confidence {prediction.confidence:.1%})")
+    print(
+        f"  Predicted: {prediction.predicted_outcome} "
+        f"(confidence {prediction.confidence:.1%})"
+    )
 
 
 if __name__ == "__main__":

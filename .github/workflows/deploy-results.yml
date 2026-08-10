@@ -1,0 +1,101 @@
+# Deploy the dedicated results service to Render.
+#
+# Structurally a copy of deploy.yml, with three deliberate differences:
+#   * a different image name (…-results) so the two never overwrite each other
+#   * a different build cache scope, so a results build does not evict the app's
+#   * a different deploy hook secret, so each service redeploys on its own
+#
+# deploy.yml is untouched: its path filters (src/backend, src/frontend, config,
+# pyproject.toml, Dockerfile) already do not match this service's own code, and
+# the two it does share — config/ and pyproject.toml — are shared for real, so
+# both workflows firing on those is correct.
+#
+# See Dockerfile.results for the one-time Render setup.
+
+name: Deploy Results Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Every directory Dockerfile.results COPYs, plus the files that decide
+      # what goes into the image. A path missing here is a stale container
+      # serving old code with a green tick next to it — which is what
+      # tests/results_service/test_deployment_contract.py exists to prevent.
+      - "src/__init__.py"
+      - "src/results_service/**"
+      - "src/scrapers/**"
+      - "src/contracts/**"
+      - "config/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile.results"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build → Push → Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      RENDER_RESULTS_DEPLOY_HOOK_URL: ${{ secrets.RENDER_RESULTS_DEPLOY_HOOK_URL }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set image name (lowercase)
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}-results" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.results
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+          # A scope of its own: sharing the app's would have a Chromium layer
+          # evicting the frontend's node_modules on every other build.
+          cache-from: type=gha,scope=results
+          cache-to: type=gha,scope=results,mode=max
+
+      - name: Trigger Render redeploy
+        if: ${{ env.RENDER_RESULTS_DEPLOY_HOOK_URL != '' }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$RENDER_RESULTS_DEPLOY_HOOK_URL")
+          HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -1)
+          echo "Render deploy hook status: $HTTP_STATUS"
+          echo "Render deploy hook body: $HTTP_BODY"
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ] && [ "$HTTP_STATUS" != "202" ]; then
+            echo "::error::Render deploy hook returned $HTTP_STATUS — $HTTP_BODY"
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Results Service Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`$REGISTRY/$IMAGE_NAME:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY

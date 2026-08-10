@@ -39,3 +39,6 @@ __pycache__/
 # scripts/build_european_corpus.py)
 datasets/openfootball/
 datasets/european/
+# Results-service cache: downloaded season CSVs and the last live snapshot.
+# Regenerated on demand; losing it costs one fetch.
+datasets/cache/results/

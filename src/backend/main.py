@@ -24,12 +24,13 @@ from src.backend.api import (
     admin,
     ai,
     evaluation,
-    exports,
+    in_play,
     inference,
     keys,
     leagues,
     predictions,
     profile,
+    results,
     stats,
     status,
     team_aliases,
@@ -68,7 +69,6 @@ app.include_router(predictions.router)
 app.include_router(inference.router)
 app.include_router(leagues.router)
 app.include_router(ai.router)
-app.include_router(exports.router)
 app.include_router(evaluation.router)
 app.include_router(keys.router)
 app.include_router(admin.router)
@@ -77,6 +77,8 @@ app.include_router(status.router)
 app.include_router(teams.router)
 app.include_router(stats.router)
 app.include_router(team_aliases.router)
+app.include_router(results.router)
+app.include_router(in_play.router)
 
 _static_dir = Path(__file__).resolve().parents[2] / "static"
 if _static_dir.exists():

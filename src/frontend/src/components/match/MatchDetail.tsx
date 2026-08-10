@@ -4,7 +4,12 @@ import { Button } from '@/components/ui/Button';
 import { SectionLabel } from '@/components/ui/SectionLabel';
 import { ProbabilityBar, ProbabilityLegend } from '@/components/ui/ProbabilityBar';
 import type { MatchPrediction } from '@/types';
-import { analyzeMatch } from '@/lib/api';
+import { analyzeMatch, type AiProvider } from '@/lib/api';
+import {
+  AI_PROVIDER_LABELS,
+  preferredModel,
+  preferredProvider,
+} from '@/lib/aiPreferences';
 
 function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -37,16 +42,23 @@ export function MatchDetail({ match }: MatchDetailProps) {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  /* Which back-end the last run used, so the result can say so. Seeded from
+   * the saved preference; the buttons below override it for one analysis. */
+  const [aiProvider, setAiProvider] = useState<AiProvider>(preferredProvider);
 
   const p = match.probabilities;
   const hasValueBets = match.value_bets.length > 0;
 
-  async function handleAiAnalysis() {
-    const model = localStorage.getItem('gemini_model') || undefined;
+  async function handleAiAnalysis(provider: AiProvider) {
+    setAiProvider(provider);
     setAiLoading(true);
     setAiError(null);
     try {
-      setAiAnalysis(await analyzeMatch(match as unknown as Record<string, unknown>, model));
+      const result = await analyzeMatch(match as unknown as Record<string, unknown>, {
+        provider,
+        model: preferredModel(provider),
+      });
+      setAiAnalysis(result.analysis);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'Erro na análise AI');
     } finally {
@@ -211,13 +223,35 @@ export function MatchDetail({ match }: MatchDetailProps) {
 
       <div className="pt-1 border-t border-line-soft">
         {!aiAnalysis ? (
-          <Button variant="outline" size="sm" loading={aiLoading} onClick={handleAiAnalysis} className="w-full">
-            Análise AI (Gemini)
-          </Button>
+          <div className="flex gap-2">
+            {/*
+              * One button per back-end rather than a dropdown plus a run
+              * button: there are two, and the choice *is* the action. The
+              * saved preference decides which is emphasised.
+              */}
+            {(['gemini', 'nvidia'] as AiProvider[]).map((provider) => (
+              <Button
+                key={provider}
+                variant={provider === aiProvider ? 'solid' : 'outline'}
+                size="sm"
+                loading={aiLoading && provider === aiProvider}
+                disabled={aiLoading}
+                onClick={() => handleAiAnalysis(provider)}
+                className="flex-1"
+              >
+                Análise {AI_PROVIDER_LABELS[provider]}
+              </Button>
+            ))}
+          </div>
         ) : (
-          <p className="text-[13px] text-fg-muted leading-relaxed whitespace-pre-line">
-            {aiAnalysis}
-          </p>
+          <>
+            <p className="text-[11px] font-mono text-fg-subtle mb-1.5">
+              {AI_PROVIDER_LABELS[aiProvider]}
+            </p>
+            <p className="text-[13px] text-fg-muted leading-relaxed whitespace-pre-line">
+              {aiAnalysis}
+            </p>
+          </>
         )}
         {aiError && <p className="text-xs text-accent-red mt-2">{aiError}</p>}
       </div>

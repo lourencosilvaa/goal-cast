@@ -44,9 +44,7 @@ def main() -> None:
     print("\n=== Loading Data ===")
     loader = FootballDataLoader(config.data)
     raw_data = (
-        loader.load_from_csv(args.local_data)
-        if args.local_data
-        else loader.load_all()
+        loader.load_from_csv(args.local_data) if args.local_data else loader.load_all()
     )
     if raw_data.empty:
         print("ERROR: No data loaded. Exiting.")

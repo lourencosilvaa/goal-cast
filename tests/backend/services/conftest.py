@@ -71,9 +71,17 @@ class FakeAsyncClient:
 def make_response(
     payload: Any = None,
     status_error: BaseException | None = None,
+    status_code: int = 200,
 ) -> MagicMock:
-    """Build an httpx-like response returning ``payload`` from ``.json()``."""
+    """Build an httpx-like response returning ``payload`` from ``.json()``.
+
+    ``status_code`` is stated rather than left as a MagicMock attribute: a
+    service that inspects the code before calling ``raise_for_status`` — as
+    ``predict_custom`` does, to tell a refusal from an outage — would otherwise
+    compare against something truthy and meaningless.
+    """
     response = MagicMock()
+    response.status_code = status_code
     response.json.return_value = payload
     if status_error is None:
         response.raise_for_status.return_value = None

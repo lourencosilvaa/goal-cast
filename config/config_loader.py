@@ -1,7 +1,14 @@
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 class AppConfig(BaseModel):
@@ -163,11 +170,18 @@ class ModelConfig(BaseModel):
 
 
 class FlashScoreConfig(BaseModel):
+    """FlashScore scraping, which is browser-rendered DOM reading and nothing else.
+
+    ``api_url``, ``token_url`` and ``http_enabled`` used to live here for an
+    HTTP feed client that could not authenticate — FlashScore moved the
+    ``feed_sign`` token into a runtime JS object — so it raised on every call
+    and the scraper fell straight through to Playwright. Configuration for a
+    path that cannot run is worse than no configuration: it suggests a choice
+    that does not exist.
+    """
+
     base_url: str
-    api_url: str
-    token_url: str
     enabled: bool = True
-    http_enabled: bool = True
     playwright_fallback_enabled: bool = True
     leagues: dict[str, str] = {}
 
@@ -178,8 +192,6 @@ class ScrapersConfig(BaseModel):
     user_agent: str
     flashscore: FlashScoreConfig = FlashScoreConfig(
         base_url="https://www.flashscore.com",
-        api_url="https://d.flashscore.com/x/feed",
-        token_url="https://www.flashscore.com",
     )
 
 
@@ -193,7 +205,6 @@ class OutputConfig(BaseModel):
     reports_dir: str
     models_dir: str
     plots_dir: str
-    exports_dir: str = "output/exports"
 
 
 class OddsAPIConfig(BaseModel):
@@ -526,6 +537,202 @@ class EuropeanConfig(BaseModel):
     prediction: EuropeanPredictionConfig = EuropeanPredictionConfig()
 
 
+class AiProviderConfig(BaseModel):
+    """One match-analysis back-end.
+
+    ``key_service`` is the row the user's encrypted key is stored under in
+    ``user_api_keys`` — naming it here is what stops a provider reading
+    somebody else's credential, which is exactly what happened while the
+    endpoint fetched the Gemini key regardless of which back-end was meant.
+    """
+
+    #: Service name in the key store ("gemini", "nvidia").
+    key_service: str
+    #: Used when the caller names no model.
+    default_model: str
+    #: OpenAI-compatible base URL. Empty for providers reached through an SDK
+    #: rather than raw HTTP, which is how Gemini is called.
+    base_url: str = ""
+    timeout: int = 60
+
+
+class AiConfig(BaseModel):
+    """Which back-ends can write a match analysis, and which one by default."""
+
+    #: Used when a request names no provider. A configured value rather than a
+    #: constant so switching the house default needs no deploy of new code.
+    default_provider: str = "gemini"
+    gemini: AiProviderConfig = AiProviderConfig(
+        key_service="gemini", default_model="gemini-2.5-flash"
+    )
+    nvidia: AiProviderConfig = AiProviderConfig(
+        key_service="nvidia",
+        default_model="meta/llama-3.3-70b-instruct",
+        base_url="https://integrate.api.nvidia.com/v1",
+    )
+
+    @field_validator("default_provider")
+    @classmethod
+    def _default_must_be_one_we_have(cls, value: str) -> str:
+        known = ("gemini", "nvidia")
+        if value not in known:
+            raise ValueError(
+                f"ai.default_provider must be one of {', '.join(known)}, got {value!r}"
+            )
+        return value
+
+
+class ResultsProviderConfig(BaseModel):
+    """One results source reached over HTTP.
+
+    Deliberately a separate model from :class:`ProviderConfig` even though the
+    fields rhyme: that one describes an *upcoming-fixture* API and is validated
+    against a fixture chain. Sharing it would tie the two tracks together, and
+    the results track already needs fields the fixture one does not (a live
+    endpoint's competitions are the served leagues, not the UEFA codes).
+
+    Only the *name* of the environment variable holding the key appears here,
+    never the key, so the file stays committable.
+    """
+
+    enabled: bool = True
+    base_url: str = ""
+    #: Environment variable holding the API key.
+    api_key_env: str = ""
+    #: Our league code → the provider's identifier for it.
+    competitions: dict[str, str] = Field(default_factory=dict)
+    #: Seconds before a request is abandoned.
+    timeout: int = 15
+    #: Retries for transport-level errors only — never for an HTTP status.
+    retries: int = 2
+
+
+class LocalCorpusConfig(BaseModel):
+    """The football-data.co.uk CSVs read as the first history source.
+
+    ``search_dirs`` are consulted before anything is downloaded, which is what
+    makes history free in development: the training cache already holds every
+    season. The deployed service has no such cache, so it downloads into
+    ``results.cache_dir`` on first use.
+    """
+
+    enabled: bool = True
+    base_url: str = "https://www.football-data.co.uk/mmz4281"
+    #: Directories searched for ``{season}_{league}.csv`` before downloading.
+    search_dirs: list[str] = Field(default_factory=lambda: ["datasets/cache"])
+    #: League codes that have a football-data.co.uk feed. A code absent from
+    #: this list is never requested — the UEFA competitions have no such feed,
+    #: and asking for one would 404 on every call.
+    leagues: list[str] = Field(default_factory=list)
+    timeout: int = 30
+
+
+class ResultsLiveConfig(BaseModel):
+    """The two clocks behind on-demand polling.
+
+    ``poll_interval_seconds`` is the TTL: inside it, a cached snapshot is
+    served and no request is made, which is what keeps a page left open from
+    consuming the provider's quota. ``stale_after_seconds`` is the honesty
+    threshold: past it, a served snapshot is flagged ``stale`` rather than
+    presented as current.
+    """
+
+    poll_interval_seconds: int = Field(default=60, gt=0)
+    stale_after_seconds: int = Field(default=300, gt=0)
+
+    @field_validator("stale_after_seconds")
+    @classmethod
+    def _stale_must_not_precede_refresh(cls, value: int, info: ValidationInfo) -> int:
+        interval = info.data.get("poll_interval_seconds")
+        if interval is not None and value < interval:
+            raise ValueError(
+                "stale_after_seconds must not be shorter than "
+                "poll_interval_seconds: a snapshot cannot go stale before the "
+                "cache would have refreshed it"
+            )
+        return value
+
+
+class ResultsServiceConfig(BaseModel):
+    """Settings read by the dedicated results service process itself."""
+
+    #: Environment variable holding the service-to-service API key. The
+    #: service refuses to start when it is unset — see
+    #: :mod:`src.results_service.auth`.
+    api_key_env: str = "RESULTS_SERVICE_API_KEY"
+
+
+class ResultsConfig(BaseModel):
+    """History and live results — read by the dedicated service, not the app.
+
+    The two provider orders are separate because the two jobs are: history is
+    answered by a local corpus almost always, live never can be. Order is a
+    correctness property in both, since the chain returns the first non-empty
+    answer.
+
+    ``enabled`` defaults to *false* here while the shipped ``config.yaml`` sets
+    it true. That is deliberate: a config file with no ``results:`` section has
+    not configured this track, and the honest reading of that is "off", not
+    "on with providers I had to invent". The validations below only apply when
+    it is switched on, so turning it on is what forces it to be coherent.
+    """
+
+    enabled: bool = False
+    history_provider_order: list[str] = Field(
+        default_factory=lambda: ["local_corpus", "football_data"]
+    )
+    live_provider_order: list[str] = Field(default_factory=lambda: ["football_data"])
+    live: ResultsLiveConfig = ResultsLiveConfig()
+    #: Where downloaded CSVs and live snapshots are persisted.
+    cache_dir: str = "datasets/cache/results"
+    service: ResultsServiceConfig = ResultsServiceConfig()
+    local_corpus: LocalCorpusConfig = LocalCorpusConfig()
+    providers: dict[str, ResultsProviderConfig] = Field(default_factory=dict)
+
+    #: History source that is not an HTTP provider, so it has no ``providers``
+    #: entry to be validated against.
+    NON_HTTP_SOURCES: ClassVar[tuple[str, ...]] = ("local_corpus",)
+
+    @model_validator(mode="after")
+    def _orders_are_coherent_when_enabled(self) -> "ResultsConfig":
+        if not self.enabled:
+            return self
+        for field in ("history_provider_order", "live_provider_order"):
+            order: list[str] = getattr(self, field)
+            if not order:
+                raise ValueError(f"{field} must not be empty when results.enabled")
+            unknown = [
+                name
+                for name in order
+                if name not in self.providers and name not in self.NON_HTTP_SOURCES
+            ]
+            if unknown:
+                raise ValueError(
+                    f"{field} names providers absent from results.providers: "
+                    f"{', '.join(sorted(unknown))}"
+                )
+        return self
+
+
+class ResultsGatewayConfig(BaseModel):
+    """How the main app reaches the results service.
+
+    The URL is an environment variable name rather than a value because it
+    differs per environment (an internal Render hostname in production,
+    localhost in development), and the key must never be committed.
+    """
+
+    enabled: bool = True
+    #: Environment variable holding the service's base URL.
+    base_url_env: str = "RESULTS_SERVICE_URL"
+    #: Environment variable holding the shared service key.
+    api_key_env: str = "RESULTS_SERVICE_API_KEY"
+    #: Shorter than the service's own provider timeouts on purpose: the app
+    #: would rather report "results service unreachable" than hold a user's
+    #: request open for as long as the slowest upstream provider might take.
+    timeout: int = 10
+
+
 class Config(BaseModel):
     app: AppConfig
     data: DataConfig
@@ -545,6 +752,11 @@ class Config(BaseModel):
         dataset_path="datasets/international/results.csv"
     )
     european: EuropeanConfig = EuropeanConfig()
+    ai: AiConfig = AiConfig()
+    #: Read by the dedicated results service only.
+    results: ResultsConfig = ResultsConfig()
+    #: Read by the main app only — how it reaches that service.
+    results_gateway: ResultsGatewayConfig = ResultsGatewayConfig()
 
 
 def load_config(path: str | Path = "config/config.yaml") -> Config:

@@ -61,11 +61,37 @@ class InsightsConfig(BaseModel):
     max_scorelines: int = 5
 
 
+class EuropeanPredictionConfig(BaseModel):
+    """How a fixture whose two teams come from different leagues is priced.
+
+    Deliberately a *slim* mirror of ``config.config_loader``'s
+    ``EuropeanPredictionConfig``, and nothing else from ``EuropeanConfig``: the
+    Space has no corpus builder, no fixture providers and no alias store, so
+    carrying those keys here would only create somewhere for them to drift.
+
+    ``dixon_coles_weight`` and ``elo_draw_rate`` were measured over 1,301
+    held-out European matches, not chosen. ``tests/test_hf_space_contract.py``
+    pins them to the main config for that reason — a Space serving a different
+    pair would produce untuned probabilities under a tuned label.
+    """
+
+    enabled: bool = True
+    #: Share of the blend taken from Dixon-Coles; the rest is ELO-implied.
+    dixon_coles_weight: float = 0.0
+    #: Below this many recorded matches a club's parameters are noise, and the
+    #: fixture is refused rather than guessed.
+    min_matches_per_team: int = 10
+    #: ELO yields an expected *score* with draws folded in, so the draw share
+    #: is stated rather than derived — ELO does not model draws at all.
+    elo_draw_rate: float = 0.22
+
+
 class SpaceConfig(BaseModel):
     data: DataConfig
     features: FeaturesConfig
     huggingface: HuggingFaceConfig = HuggingFaceConfig()
     insights: InsightsConfig = InsightsConfig()
+    european_prediction: EuropeanPredictionConfig = EuropeanPredictionConfig()
 
 
 def load_config(path: str | Path = "config/config.yaml") -> SpaceConfig:

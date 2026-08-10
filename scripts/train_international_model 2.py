@@ -75,9 +75,7 @@ def main() -> None:
 
     print("\n=== Training Models ===")
     weighter = (
-        TimeDecayWeighter(config.model.time_decay)
-        if config.model.time_decay
-        else None
+        TimeDecayWeighter(config.model.time_decay) if config.model.time_decay else None
     )
     trainer = ModelTrainer(config.model, weighter=weighter)
     X, y, feature_names = trainer.prepare_data(featured_data)
