@@ -5,9 +5,10 @@
 # approved by an admin at runtime live in the Supabase `team_aliases` table
 # instead. Both are consulted; neither is guessed.
 #
-# Keys are the *scraped* spelling (FlashScore, or openfootball for the `EU-*`
-# scopes), values the *canonical* football-data.co.uk spelling used by every
-# model and data set here. Matching ignores case and surrounding whitespace.
+# Keys are the *scraped* spelling — FlashScore, openfootball for the `EU-*`
+# scopes, or football-data.org's `shortName` for the live results board —
+# values the *canonical* football-data.co.uk spelling used by every model and
+# data set here. Matching ignores case and surrounding whitespace.
 # An alias whose value is not a real team is rejected at resolution time and
 # flagged by `tests/teams/test_static_alias_repository.py`.
 #
@@ -141,3 +142,27 @@ aliases:
     Fenerbahçe: Fenerbahce
     Galatasaray SK: Galatasaray
     İstanbul Başakşehir: Buyuksehyr
+  # The domestic blocks below carry football-data.org's `shortName`, which is
+  # what the live results service reports. Most clubs need no entry — the
+  # short name *is* the canonical spelling ("Porto", "Ajax") — so only the
+  # divergences are listed. Each was checked against the registry by hand; a
+  # value that is not a real team fails
+  # `tests/teams/test_static_alias_repository.py`.
+  #
+  # Some of these repeat an `EU-*` entry. They have to: a Primeira Liga
+  # fixture is resolved in scope `P1`, which cannot see aliases approved for
+  # `EU-POR`.
+  N1:
+    AZ: AZ Alkmaar
+    Go Ahead: Go Ahead Eagles
+    NEC: Nijmegen
+    PSV: PSV Eindhoven
+    Sittard: For Sittard
+    Sparta: Sparta Rotterdam
+  P1:
+    Amadora: Estrela
+    Braga: Sp Braga
+    CD Nacional: Nacional
+    SL Benfica: Benfica
+    Sporting CP: Sp Lisbon
+    Vitória SC: Guimaraes

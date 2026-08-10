@@ -24,8 +24,16 @@ on:
     paths:
       - "src/backend/**"
       - "src/frontend/**"
+      # Shared packages that also ship inside this image. Without them a
+      # change to the wire contract or the team registry builds nothing, and
+      # Render keeps serving the old code behind a green tick.
+      - "src/__init__.py"
+      - "src/contracts/**"
+      - "src/models/**"
+      - "src/teams/**"
       - "config/**"
       - "pyproject.toml"
+      - "uv.lock"
       - "Dockerfile"
   workflow_dispatch:
 

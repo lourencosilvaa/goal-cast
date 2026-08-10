@@ -85,6 +85,27 @@ insights:
   form_sequence_length: 5
   max_scorelines: 5
 
+# Pricing a fixture whose two teams come from different leagues, served on
+# /predict-custom. Mirrors `european.prediction` in config/config.yaml — the
+# two tuned values are pinned to it by tests/test_hf_space_contract.py.
+#
+# Only the prediction knobs live here. The corpus, the fixture providers and
+# the alias store have no counterpart in the Space, and copying their keys
+# would create somewhere for them to drift unnoticed.
+european_prediction:
+  enabled: true
+  # Zero, and measured rather than assumed. Swept over 1,301 held-out European
+  # matches (docs §14): the log-loss profile rises monotonically with this
+  # weight at every draw rate, so Dixon-Coles never improves a cross-league
+  # 1X2. Re-measure with scripts/tune_european_weight.py before changing it.
+  dixon_coles_weight: 0.0
+  # Below this, a club's fitted parameters are noise and the fixture is
+  # refused rather than guessed.
+  min_matches_per_team: 10
+  # ELO produces an expected score with draws folded in, so the draw share has
+  # to be carved back out. Stated, not derived: ELO does not model draws.
+  elo_draw_rate: 0.22
+
 huggingface:
   repo_id: ""  # Set via HF_REPO_ID env var
   hf_token: ""  # Set via HF_TOKEN env var

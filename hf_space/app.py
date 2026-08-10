@@ -11,7 +11,6 @@ proxied by the backend.
 
 import csv
 import io
-import os
 import time as _time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -29,14 +28,17 @@ from src.analysis.team_insights import (
     TeamInsightsCalculator,
     TeamQuery,
 )
-from src.models.data_cleaner import DataCleaner
-from src.models.data_loader import FootballDataLoader
 from src.models.cross_competition import (
     CrossCompetitionCorpus,
     CrossCompetitionEloBuilder,
 )
+from src.models.cross_league import is_cross_league, match_counts
+from src.models.data_cleaner import DataCleaner
+from src.models.data_loader import FootballDataLoader
 from src.models.elo import FootballELO
+from src.models.european_predictor import EuropeanMatchPredictor, PredictionRefused
 from src.models.feature_engineer import FeatureEngineer
+from src.models.fixture_features import FixtureFeatureBuilder, FixtureTeams
 from src.models.predictor import MatchPredictor
 
 _PREDICTOR: MatchPredictor | None = None
@@ -44,6 +46,15 @@ _CONFIG: SpaceConfig | None = None
 _ENRICHED_DATA: pd.DataFrame | None = None
 _TEAMS_BY_LEAGUE: dict[str, list[str]] = {}
 _INSIGHTS: TeamInsightsCalculator | None = None
+
+#: The ELO instance left behind by the cross-league walk, and how much history
+#: each club has. Both are startup state rather than per-request work: the
+#: ratings are the *only* place the cross-league calibration survives (the walk
+#: returns domestic rows, so a European result moves a rating without ever
+#: appearing in the output), and recounting appearances on every request would
+#: be a full pass over the corpus to answer a question that cannot change.
+_ELO: FootballELO | None = None
+_MATCH_COUNTS: dict[str, int] = {}
 
 _FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 _FIXTURES_CACHE = Path("/tmp/fixtures.csv")
@@ -60,6 +71,7 @@ DIVISION_MAP: dict[str, str] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _PREDICTOR, _CONFIG, _ENRICHED_DATA, _TEAMS_BY_LEAGUE, _INSIGHTS
+    global _ELO, _MATCH_COUNTS
     _CONFIG = load_config()
     DIVISION_MAP.update(_CONFIG.data.leagues)
     model_dir = _download_model(_CONFIG)
@@ -71,7 +83,8 @@ async def lifespan(app: FastAPI):
     # The insight calculator reads raw results (goals, dates, shots), so it is
     # built from the cleaned frame before feature engineering rewrites it.
     _INSIGHTS = _build_insights(historical_df, _CONFIG, _PREDICTOR)
-    _ENRICHED_DATA = _engineer_features(historical_df, _CONFIG)
+    _ENRICHED_DATA, _ELO = _engineer_features(historical_df, _CONFIG)
+    _MATCH_COUNTS = match_counts(_ENRICHED_DATA)
     yield
 
 
@@ -106,6 +119,10 @@ class CustomPredictRequest(BaseModel):
     home_team: str
     away_team: str
     league_code: str
+    #: The away side's league, when it differs from the home side's. Absent
+    #: means "the same one" — which is what every caller sending a single code
+    #: has always meant, and must keep meaning.
+    away_league_code: str | None = None
 
 
 class CustomPredictResponse(BaseModel):
@@ -115,6 +132,13 @@ class CustomPredictResponse(BaseModel):
     confidence: float
     probabilities: dict[str, float]
     league: str
+    #: Set only on a cross-league answer; the home league alone is ambiguous
+    #: once the two sides can differ.
+    away_league: str | None = None
+    #: What actually produced the numbers. ``None`` is the domestic ensemble —
+    #: naming it on every response would leave the cross-league label meaning
+    #: nothing by contrast.
+    model: str | None = None
 
 
 class MatchInsightsRequest(BaseModel):
@@ -166,9 +190,20 @@ def infer(req: InferRequest) -> InferResponse:
 
 @app.post("/predict-custom", response_model=CustomPredictResponse)
 def predict_custom(req: CustomPredictRequest) -> CustomPredictResponse:
-    """Predict a single matchup for any two teams, using league averages for unknowns."""
+    """Predict a single matchup for any two teams.
+
+    Which model answers is decided by the *pairing*, not by a competition
+    badge. The ensemble is trained only on rows where both sides share a
+    league, so it has never seen a cross-league fixture and carries no feature
+    that would tell it one had arrived — a Liga Portugal club against a Premier
+    League club is that fixture whether or not a European badge is attached.
+    """
     if _PREDICTOR is None or _CONFIG is None or _ENRICHED_DATA is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
+
+    away_league_code = req.away_league_code or req.league_code
+    if is_cross_league(req.league_code, away_league_code):
+        return _predict_cross_league(req, away_league_code)
 
     league_name = DIVISION_MAP.get(req.league_code, req.league_code)
     enriched = _ENRICHED_DATA
@@ -197,8 +232,56 @@ def predict_custom(req: CustomPredictRequest) -> CustomPredictResponse:
         away_team=req.away_team,
         predicted_outcome=d.get("predicted_outcome", ""),
         confidence=float(d.get("confidence", 0.0)),
-        probabilities=d.get("probabilities", {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}),
+        probabilities=d.get(
+            "probabilities", {"home_win": 0.0, "draw": 0.0, "away_win": 0.0}
+        ),
         league=league_name,
+    )
+
+
+def _predict_cross_league(
+    req: CustomPredictRequest, away_league_code: str
+) -> CustomPredictResponse:
+    """Price a fixture whose two sides come from different leagues.
+
+    Dixon-Coles and ELO, because the corpus calibration made those two
+    comparable across league pools and left the ensemble untouched. A club with
+    no history is refused with the reason stated (422) rather than answered
+    with a number invented from a default rating — the same refusal the name
+    resolver makes with spellings it has not been taught.
+    """
+    if _CONFIG is None or not _CONFIG.european_prediction.enabled:
+        raise HTTPException(
+            status_code=503, detail="Cross-league prediction is disabled"
+        )
+    # Dixon-Coles answers the *history* question even at weight zero: it is the
+    # only component that knows which clubs exist at all, so without it the
+    # refusal gate cannot run and every answer would be a guess.
+    if _PREDICTOR is None or _PREDICTOR.poisson is None or _ELO is None:
+        raise HTTPException(status_code=503, detail="Cross-league model not loaded")
+
+    predictor = EuropeanMatchPredictor(
+        dixon_coles=_PREDICTOR.poisson,
+        elo=_ELO,
+        config=_CONFIG.european_prediction,
+        match_counts=_MATCH_COUNTS,
+    )
+    try:
+        prediction = predictor.predict(req.home_team, req.away_team)
+    except PredictionRefused as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    payload = prediction.to_dict()
+    probabilities: dict[str, float] = payload["probabilities"]  # type: ignore[assignment]
+    return CustomPredictResponse(
+        home_team=req.home_team,
+        away_team=req.away_team,
+        predicted_outcome=str(payload["predicted_outcome"]),
+        confidence=float(payload["confidence"]),  # type: ignore[arg-type]
+        probabilities=probabilities,
+        league=DIVISION_MAP.get(req.league_code, req.league_code),
+        away_league=DIVISION_MAP.get(away_league_code, away_league_code),
+        model=prediction.model,
     )
 
 
@@ -318,7 +401,9 @@ def _extract_teams_by_league(df: pd.DataFrame) -> dict[str, list[str]]:
     for league_name, group in df.groupby("League"):
         code = league_name_to_code.get(str(league_name))
         if code:
-            teams = sorted(set(group["HomeTeam"].unique()) | set(group["AwayTeam"].unique()))
+            teams = sorted(
+                set(group["HomeTeam"].unique()) | set(group["AwayTeam"].unique())
+            )
             result[code] = teams
     return result
 
@@ -348,9 +433,20 @@ def _load_european_corpus(config: SpaceConfig) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _engineer_features(df: pd.DataFrame, config: SpaceConfig) -> pd.DataFrame:
+def _engineer_features(
+    df: pd.DataFrame, config: SpaceConfig
+) -> tuple[pd.DataFrame, FootballELO]:
+    """The model's feature matrix, **and the ELO instance that produced it**.
+
+    Returning the instance is not a convenience. ``build`` yields domestic rows
+    only, so every European result updates a rating without appearing in the
+    output — recomputing ELO from that frame would look equivalent and silently
+    revert each rating to its uncalibrated value, which is the entire thing the
+    corpus work exists to prevent. The instance is where the calibration lives.
+    """
+    elo = FootballELO(config.features.elo)
     if df.empty:
-        return df
+        return df, elo
     try:
         fe = FeatureEngineer(config.features)
         df = fe.build_all_features(df)
@@ -360,58 +456,34 @@ def _engineer_features(df: pd.DataFrame, config: SpaceConfig) -> pd.DataFrame:
         # ratings to a model trained on calibrated ones is worse than never
         # calibrating, because the features stop meaning what it learned.
         european = _load_european_corpus(config)
-        elo = FootballELO(config.features.elo)
-        return CrossCompetitionEloBuilder(elo).build(
+        built = CrossCompetitionEloBuilder(elo).build(
             CrossCompetitionCorpus(domestic=df, supplementary=european)
         )
+        return built, elo
     except Exception:
-        return pd.DataFrame()
+        return pd.DataFrame(), elo
 
 
-def _build_features(
-    fixture: dict[str, str], enriched: pd.DataFrame
-) -> dict[str, Any]:
-    features: dict[str, Any] = {
-        "HomeTeam": fixture["home_team"],
-        "AwayTeam": fixture["away_team"],
-    }
-    if enriched.empty:
-        return features
+def _build_features(fixture: dict[str, str], enriched: pd.DataFrame) -> dict[str, Any]:
+    """The model's feature row for an unplayed fixture.
 
-    league_avg = enriched.mean(numeric_only=True)
+    Delegates to the shared
+    :class:`~src.models.fixture_features.FixtureFeatureBuilder`, which
+    ``scripts/run_inference.py`` also uses. This function used to carry its own
+    implementation, and it only understood ``home_``/``away_`` prefixes: every
+    ``diff_*``, ``elo_*`` and ``h2h_*`` was copied from the home team's
+    *previous* match, so the Space and the scheduled job predicted different
+    outcomes for the same fixture. Whatever this row needs to contain is now
+    decided in exactly one place.
 
-    home_rows = enriched[
-        (enriched["HomeTeam"] == fixture["home_team"])
-        | (enriched["AwayTeam"] == fixture["home_team"])
-    ]
-    away_rows = enriched[
-        (enriched["HomeTeam"] == fixture["away_team"])
-        | (enriched["AwayTeam"] == fixture["away_team"])
-    ]
+    It also asks for the predictor's own ``feature_names`` rather than every
+    numeric column of the corpus: the model consumes that list, and building
+    the rest was work with no reader.
+    """
+    if enriched.empty or _PREDICTOR is None:
+        return {"HomeTeam": fixture["home_team"], "AwayTeam": fixture["away_team"]}
 
-    home_last = home_rows.iloc[-1] if not home_rows.empty else league_avg
-    away_last = away_rows.iloc[-1] if not away_rows.empty else league_avg
-    home_was_home = home_last.get("HomeTeam", "") == fixture["home_team"]
-    away_was_away = away_last.get("AwayTeam", "") == fixture["away_team"]
-
-    numeric_cols = [
-        c for c in enriched.columns
-        if c not in ("HomeTeam", "AwayTeam", "FTR", "Date")
-    ]
-    for col in numeric_cols:
-        if col.startswith("home_"):
-            src = home_last if home_was_home else away_last
-            opposite = "away_" + col[5:]
-            val = src.get(col if home_was_home else opposite, 0)
-        elif col.startswith("away_"):
-            src = away_last if away_was_away else home_last
-            opposite = "home_" + col[5:]
-            val = src.get(col if away_was_away else opposite, 0)
-        else:
-            val = home_last.get(col, league_avg.get(col, 0))
-        try:
-            features[col] = float(val) if pd.notna(val) else 0.0
-        except (TypeError, ValueError):
-            features[col] = 0.0
-
-    return features
+    return FixtureFeatureBuilder(enriched).build(
+        FixtureTeams(home=fixture["home_team"], away=fixture["away_team"]),
+        _PREDICTOR.feature_names,
+    )
