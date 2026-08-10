@@ -93,8 +93,6 @@ class InternationalFixturesFetcher:
 def build_international_fixtures_fetcher() -> InternationalFixturesFetcher:
     """Construct a fetcher wired to a real FlashScore scraper from config."""
     from config.config_loader import load_config
-    from src.scrapers.flashscore.http_client import FlashScoreHttpClient
-    from src.scrapers.flashscore.parser import FlashScoreParser
     from src.scrapers.flashscore.playwright_client import FlashScorePlaywrightClient
     from src.scrapers.flashscore.scraper import FlashScoreScraper
 
@@ -105,17 +103,11 @@ def build_international_fixtures_fetcher() -> InternationalFixturesFetcher:
 
     class _MergedConfig:
         base_url = flashscore_cfg.base_url
-        http_enabled = flashscore_cfg.http_enabled
         playwright_fallback_enabled = flashscore_cfg.playwright_fallback_enabled
         leagues = intl_fs.leagues
         user_agent = scrapers_cfg.user_agent
         request_timeout = scrapers_cfg.request_timeout
 
     merged = _MergedConfig()
-    scraper = FlashScoreScraper(
-        merged,
-        FlashScoreHttpClient(merged),
-        FlashScorePlaywrightClient(merged),
-        FlashScoreParser(),
-    )
+    scraper = FlashScoreScraper(merged, FlashScorePlaywrightClient(merged))
     return InternationalFixturesFetcher(intl_fs, scraper)

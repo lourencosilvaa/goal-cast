@@ -18,7 +18,8 @@ A full-stack web application that combines a **ML ensemble model** with **AI-pow
 ┌─────────────────────────────────────────────────────────┐
 │              BACKEND (FastAPI — lightweight)              │
 │  /api/predictions │ /api/leagues │ /api/ai/analyze       │
-│  /api/admin │ /api/keys │ /api/export │ /api/status      │
+│  /api/admin │ /api/keys │ /api/results │ /api/in-play    │
+│  /api/status                                             │
 │  /api/predictions/infer  ◄── on-demand inference proxy   │
 │  Reads pre-computed predictions from Supabase (~50 MB)   │
 └──────────────┬──────────────────────────┬───────────────┘
@@ -120,6 +121,40 @@ A **Dixon-Coles bivariate-Poisson** model (`src/models/poisson/`) models goals d
 - **Calibrated score markets** — scorelines, Over/Under (1.5/2.5/3.5), BTTS and expected goals — replacing the earlier naive independent-Poisson calculator (kept only as a fallback when the model doesn't know a team).
 - **A 1X2 distribution blended into the ensemble** — `model.poisson.blend_weight` (default `0.4`, empirically optimal via `scripts/tune_blend_weight.py`; the blend beats both the ensemble and the Poisson model alone).
 
+### Cross-league fixtures
+
+A fixture whose two teams come from different leagues is **not** predicted by
+the ensemble. The ensemble is trained only on rows where both sides share a
+league — European results carry no shot, foul or corner columns, so they never
+enter its training matrix — which means it has never seen such a fixture and
+has no feature that would tell it one had arrived. Feeding it a Benfica–Arsenal
+tie would be extrapolation presented as a prediction.
+
+What answers instead (`src/models/european_predictor.py`, mirrored into
+`hf_space/`) is ELO, optionally blended with Dixon-Coles. Both were made
+comparable across league pools by the corpus calibration; the ensemble was not.
+
+- **`european.prediction.dixon_coles_weight` is `0.0`** — measured, not chosen.
+  Swept over 1,301 held-out European matches: the log-loss profile rises
+  monotonically with this weight at every draw rate. Its attack/defence
+  parameters rest on 2,636 European matches against 63,724 domestic ones, so
+  they still describe a club's own league more than they describe Europe.
+- **`elo_draw_rate` is `0.22`** — ELO yields an expected *score* with draws
+  folded in, so the draw share is stated rather than derived. Measured in the
+  same sweep.
+- **Every prediction records the model that produced it.** With the weight at
+  zero the label reads `elo`, not `dixon-coles+elo`; it is derived from the
+  configured weight so it cannot go stale when that weight moves.
+- **A club with no history is refused, not guessed** (`422` with the reason).
+  Below `min_matches_per_team` recorded matches a club's parameters are noise,
+  and a rating invented from the default would be a number with nothing behind
+  it.
+
+The routing predicate and the evidence counts live in
+`src/models/cross_league.py`, shared by the scheduled job and the Space so the
+two cannot drift; `tests/test_hf_space_contract.py` pins both the mirrored
+module and the two tuned values.
+
 ### Value Bet Detection
 
 A value bet is flagged when `ML probability > bookmaker implied probability + 3%`, where the ML probability is the calibrated, Poisson-blended 1X2 output.
@@ -136,9 +171,27 @@ A value bet is flagged when `ML probability > bookmaker implied probability + 3%
 - Daily match predictions for all 21 divisions
 - Confidence levels and blended probabilities
 - AI analysis per match (Google Gemini)
-- **On-demand inference** ("Calcular ao vivo") — calls the HF Space directly for live predictions
-- Export predictions to CSV / Excel
+- **On-demand inference** ("Recalcular (modelo HF)") — re-runs the pre-match model on the HF Space. It does **not** read the score; the live re-pricing lives in each fixture row (see `/api/in-play`)
 - Date picker to browse predictions for upcoming fixtures
+
+### Prever Jogo (custom prediction)
+
+Any two teams, played hypothetically. The two sides may sit in **different
+domestic leagues** — pick a league per side — and which model answers follows
+from that pairing rather than from any competition badge:
+
+| Pairing | Model | Response `model` |
+|---|---|---|
+| Same league | Ensemble + Dixon-Coles blend | `null` |
+| Different leagues | Cross-league (see below) | `"elo"` |
+
+UEFA competitions are deliberately absent from both pickers: they are not a
+side of a fixture, they are where one gets played, and they have no
+football-data division behind them.
+
+Head-to-head and team statistics are **skipped** for a cross-league pairing.
+`/match-insights` is scoped to a single league and would 404 on a club unknown
+there — a request whose failure is known in advance is not worth making.
 
 ### Value Bets
 - Auto-detected value opportunities (edge ≥ 3%)
@@ -175,6 +228,7 @@ football-prediction-agent/
 │       ├── retrain.yml            # Weekly retrain (skips upload/redeploy if no new data)
 │       ├── run-inference.yml      # Daily inference → Supabase upload
 │       ├── deploy.yml             # Build Docker image → Render redeploy
+│       ├── deploy-results.yml     # Build Dockerfile.results → results Render service
 │       └── deploy-hf-space.yml    # Sync hf_space/ → HuggingFace Space
 ├── config/
 │   ├── config.yaml                # Centralized configuration
@@ -182,23 +236,24 @@ football-prediction-agent/
 ├── hf_space/                      # Self-contained HuggingFace Space (Docker)
 │   ├── Dockerfile                 # Python 3.11, uvicorn, port 7860
 │   ├── requirements.txt           # FastAPI + full ML stack
-│   ├── app.py                     # FastAPI: /health + POST /infer
+│   ├── app.py                     # FastAPI: /health, POST /infer, POST /predict-custom
 │   ├── config/
 │   │   ├── config.yaml            # Space-specific config
 │   │   └── config_loader.py       # Minimal Pydantic loader + env var injection
-│   └── src/models/                # Copies of predictor, feature_engineer, data_loader
+│   └── src/models/                # Mirrors of the shared model modules — byte-identical,
+│                                  # pinned by tests/test_hf_space_contract.py
 ├── src/
 │   ├── backend/                   # Lightweight FastAPI (no ML deps at runtime)
 │   │   ├── api/
 │   │   │   ├── admin.py           # User management (list, create, approve/revoke)
 │   │   │   ├── ai.py              # Gemini match analysis
 │   │   │   ├── evaluation.py      # Model evaluation stats
-│   │   │   ├── exports.py         # CSV/Excel export (reads from Supabase)
-│   │   │   ├── inference.py       # POST /api/predictions/infer (proxy to HF Space)
+│   │   │   ├── inference.py       # POST /api/predictions/{infer,custom} (proxy to HF Space)
 │   │   │   ├── keys.py            # Per-user Gemini + NVIDIA key CRUD
 │   │   │   ├── leagues.py         # Available leagues
 │   │   │   ├── predictions.py     # Match predictions (reads from Supabase)
 │   │   │   ├── profile.py         # User profile + self-registration
+│   │   │   ├── results.py         # Thin proxy to the results service
 │   │   │   └── status.py          # Retraining status flag
 │   │   ├── core/
 │   │   │   ├── auth.py            # JWT validation via Supabase
@@ -221,9 +276,19 @@ football-prediction-agent/
 │   │       ├── pages/             # Dashboard, ValueBets, Settings, Admin, Login
 │   │       └── App.tsx            # Routes (ProtectedRoute, AdminRoute)
 │   ├── models/                    # ML pipeline (data_loader, feature_engineer, trainer, predictor)
+│   ├── contracts/                 # Wire models shared by BOTH deployed images
+│   │   └── results.py             # /live and /history payloads
+│   ├── results_service/           # Dedicated results microservice (Dockerfile.results)
+│   │   ├── api/                   # /live, /history (X-API-Key), /health (open)
+│   │   ├── auth.py                # Service key — absent means the service will not start
+│   │   ├── factory.py             # Builds chains, tracker and catalogue from config
+│   │   ├── repository.py          # Last live snapshot on disk (survives a cold start)
+│   │   ├── service.py             # Validate the request, then ask the right chain
+│   │   └── main.py                # uvicorn entry point
 │   ├── scrapers/
 │   │   ├── fixtures_fetcher.py    # football-data.co.uk CSV → OddsAPI → FlashScore
 │   │   ├── flashscore/            # FlashScore scraper (HTTP + Playwright fallback)
+│   │   ├── results/               # Results providers: local corpus, football-data, chains, TTL tracker
 │   │   └── ...                    # Odds scrapers (Betclic, Betano, Solverde)
 │   └── analysis/                  # Value detection, KL divergence, Poisson match stats
 ├── scripts/
@@ -239,8 +304,9 @@ football-prediction-agent/
 ├── supabase/migrations/           # SQL migrations for Supabase tables
 ├── tests/                         # Test suite mirroring src/
 ├── datasets/cache/                # Local CSV cache (ephemeral on Render)
-├── output/                        # Reports, trained models, exports
-├── Dockerfile                     # Slim backend image (no ML deps)
+├── output/                        # Reports, trained models, evaluation
+├── Dockerfile                     # Slim backend image (no ML deps, no Chromium)
+├── Dockerfile.results             # Results service image (Playwright + Chromium live here)
 └── pyproject.toml                 # Python deps managed by uv
 ```
 
@@ -278,6 +344,7 @@ The app runs as two separate services on **Render**, backed by **Supabase** (aut
 |---------|------|---------|
 | Backend API | Render Web Service | Docker (`Dockerfile` at repo root) |
 | Frontend | Render Static Site | Node build from `src/frontend` |
+| Results service | Render Web Service | Docker (`Dockerfile.results`) — see [Results service](#results-service-history--live) |
 | Database & Auth | Supabase | — |
 | On-demand Inference | HuggingFace Space | Docker (`hf_space/`) |
 | ML Model + Datasets | Hugging Face Hub | Private repo (`datasets/` subfolder) |
@@ -346,6 +413,122 @@ Two findings worth knowing before you rely on any of them:
 The chain returns the first non-empty answer, so provider order is a correctness
 property rather than a preference — it lives in `european.provider_order`.
 
+#### Results service (history + live)
+
+Match results — finished seasons and today's scores — are served by a **second
+Render service** built from `Dockerfile.results`, not by the backend. The
+frontend still talks only to the backend, which proxies `/api/results/*` to it.
+
+Why a separate deployment:
+
+- The Flashscore fallback needs Playwright and Chromium (~400 MB). Keeping it
+  out of the application image is the concrete win; the backend never imports
+  a provider, and `tests/results_service/test_deployment_contract.py` fails if
+  it starts to.
+- A blocked scraper or an exhausted quota degrades results only. The backend
+  answers `503` with a message and the rest of the product carries on.
+
+| Concern | Where it lives |
+|---|---|
+| Provider library (chains, tracker, parsers) | `src/scrapers/results/` |
+| The service itself (FastAPI app, auth, repository) | `src/results_service/` |
+| Wire contract, shared by both images | `src/contracts/results.py` |
+| The app's client | `src/backend/services/results_gateway.py` |
+| The frontend-facing proxy | `src/backend/api/results.py` |
+| Settings | `results:` and `results_gateway:` in `config/config.yaml` |
+
+**Sources, in configured order.** History: the local football-data.co.uk CSVs
+first — the training cache already holds every season, so the common case costs
+no request and no quota — then football-data.org for the current season and for
+competitions with no CSV feed. Live: football-data.org, whose
+`/v4/matches?date=…` returns the whole day across every competition in the plan
+in **one** request, which is what makes 60-second polling fit inside 10
+requests/minute. The Flashscore fallback is **enabled**
+(`results.providers.flashscore.enabled: true`) with the trade-off on the
+record: the site's ToS prohibit scraping, but it is the only source that
+reports a match clock and the only one covering the four served leagues the
+free tier does not carry (Scotland, Belgium, Turkey, Greece). It stays second
+in the chain, so it is consulted only when football-data answers nothing;
+matches that tier *does* cover get an estimated minute instead
+(`src/scrapers/results/elapsed.py`). Setting it to `false` switches the
+scraping off and leaves everything working on estimates alone.
+
+**"Live" is polling with a TTL, not a background loop.** A snapshot is refreshed
+at most once per `results.live.poll_interval_seconds`, and the TTL gates
+*attempts* rather than the age of what is served — so a provider that starts
+failing is not re-queried on every request. Past
+`results.live.stale_after_seconds` the response is flagged `stale: true` and
+still carries the last known scores, because "we cannot currently tell" and "no
+matches" must not render as the same blank board. The snapshot is also persisted
+to `results.cache_dir`, so a service woken from Render's free-tier sleep has
+something to serve if the provider happens to be unreachable at that moment.
+
+**Environment variables** (see `.env.example`):
+
+| Variable | Set on | Purpose |
+|---|---|---|
+| `RESULTS_SERVICE_API_KEY` | **both** services | Shared service-to-service secret. The results service **refuses to start** without it rather than exposing a scraper and a metered quota. |
+| `RESULTS_SERVICE_URL` | main service | Where the results service lives (Render's internal URL). |
+| `FOOTBALL_DATA_API_KEY` | results service | The same key the fixtures pipeline uses. |
+
+Deployment is `.github/workflows/deploy-results.yml` → `ghcr.io/<repo>-results`
+→ the `RENDER_RESULTS_DEPLOY_HOOK_URL` secret. `deploy.yml` is untouched; the
+one-time Render setup is documented at the top of `Dockerfile.results`.
+
+Run both locally with:
+
+```bash
+# terminal 1 — the results service
+RESULTS_SERVICE_API_KEY=local-dev-key \
+  uv run uvicorn src.results_service.main:app --port 8100
+
+# terminal 2 — the backend, pointed at it
+RESULTS_SERVICE_URL=http://127.0.0.1:8100 \
+RESULTS_SERVICE_API_KEY=local-dev-key \
+  uv run uvicorn src.backend.main:app --port 8000
+
+curl "http://127.0.0.1:8000/api/results/live?leagues=P1"
+curl "http://127.0.0.1:8000/api/results/history?league=P1&season=2526"
+curl "http://127.0.0.1:8000/api/in-play?leagues=P1"
+```
+
+#### In-play predictions (`/api/in-play`)
+
+The stored prediction is a statement about a match that had not started. Once
+one has, `/api/in-play` re-prices it on what the pre-match model never saw: the
+score, and how little time is left. The dashboard shows the result inside the
+fixture row, under the pre-match bar rather than instead of it — a live 91%
+means little alone, but under a pre-match 72% it says the match has swung.
+
+| Concern | Where it lives |
+|---|---|
+| The Poisson re-pricing | `src/backend/services/in_play.py` |
+| Joining the live board to the stored predictions | `src/backend/services/in_play_board.py` |
+| Adapters onto Supabase and the name resolver | `src/backend/repositories/in_play_sources.py` |
+| The route | `src/backend/api/in_play.py` |
+| The row UI | `src/frontend/src/components/live/InPlayBlock.tsx` |
+
+**The model.** Goals arrive as a Poisson process at the rate the pre-match model
+expected (`expected_goals`, already stored with every prediction); the goals
+still to come are Poisson with that rate scaled by the fraction of the match
+left, and the current score is a known head start. At minute 0 it collapses to
+the pre-match distribution, at 90 to the actual result. It assumes the scoring
+rate is unaffected by the score, which is false — a leading side defends — so
+comebacks are slightly under-priced. Red cards and stoppage time are invisible,
+and the minute itself is often an estimate.
+
+**Identity is the hard part, not the arithmetic.** Predictions are keyed by
+football-data.co.uk spellings ("Sp Lisbon"), the live board reports
+football-data.org short names ("Sporting CP"). Names go through
+`src/teams/resolver.py`, which resolves an exact match or a human-approved
+alias and refuses to guess. A match that cannot be identified comes back in
+`unpriced` with a reason (`unknown_team`, `no_prediction`,
+`no_expected_goals`) rather than being dropped, so a short board is
+explainable. The divergent short names are in the `N1:`/`P1:` blocks of
+`config/team_aliases.yaml`; a club missing from `src/backend/data/teams_registry.json`
+altogether (a newly promoted side) cannot be fixed with an alias and has no
+stored prediction either.
+
 ---
 
 ### Step 1 — Supabase
@@ -367,12 +550,20 @@ CREATE POLICY "service_role_full_access" ON public.user_profiles
 CREATE POLICY "users_read_own_profile" ON public.user_profiles
   FOR SELECT TO authenticated USING (auth.uid() = user_id);
 
--- Encrypted per-user Gemini API keys
+-- Encrypted per-user API keys (Gemini, NVIDIA)
+--
+-- The primary key is (user_id, service), not user_id alone. Two reasons, and
+-- both bite immediately: a user holds one key *per service*, so a PK on
+-- user_id can physically store only one of them; and ApiKeyService upserts
+-- with ON CONFLICT (user_id, service), which Postgres rejects with 42P10
+-- unless a unique constraint covers exactly that pair. With a PK on user_id
+-- alone, every save returns HTTP 500.
 CREATE TABLE public.user_api_keys (
-  user_id    UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id    UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   service    TEXT NOT NULL,
   key_enc    TEXT NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, service)
 );
 ALTER TABLE public.user_api_keys ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role_full_access" ON public.user_api_keys
@@ -427,6 +618,24 @@ ALTER TABLE public.predictions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role_full_access" ON public.predictions
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 ```
+
+#### Fixing an existing deployment — `user_api_keys`
+
+Projects created before this correction have `user_api_keys` with a primary key
+on `user_id` alone. Every attempt to save an API key from the Settings page
+returns **HTTP 500**, with `42P10 — there is no unique or exclusion constraint
+matching the ON CONFLICT specification` in the backend log. Run once in the SQL
+Editor:
+
+```sql
+-- One key per (user, service). A PK on user_id alone cannot represent that,
+-- and the upsert's ON CONFLICT (user_id, service) has nothing to match.
+ALTER TABLE public.user_api_keys DROP CONSTRAINT user_api_keys_pkey;
+ALTER TABLE public.user_api_keys ADD PRIMARY KEY (user_id, service);
+```
+
+No data is lost: the table held at most one row per user, and each row already
+names its service.
 
 From **Supabase → Settings → API**, collect:
 
@@ -606,7 +815,8 @@ Render (Backend — lightweight, ~50 MB)
   └─► Docker image with backend deps only (no pandas/sklearn/xgboost)
   └─► reads predictions from Supabase (no ML at runtime)
   └─► proxies on-demand requests to HF Space via InferenceService
-  └─► serves auth, admin, AI analysis, exports, API keys (Gemini + NVIDIA)
+  └─► serves auth, admin, AI analysis, API keys (Gemini + NVIDIA)
+  └─► proxies /api/results/* to the dedicated results service
   └─► uses ENCRYPTION_KEY to decrypt per-user API keys
 
 Render (Frontend)

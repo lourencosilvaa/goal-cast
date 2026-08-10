@@ -41,6 +41,16 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY config/ config/
 COPY src/__init__.py src/__init__.py
 COPY src/backend/ src/backend/
+# The wire contract the results service speaks. Imported by the gateway on the
+# import path of the whole app, so its absence is not a broken feature — it is
+# a container that will not start.
+COPY src/contracts/ src/contracts/
+# The 1X2 probability triple, shared with the offline models. Two files, not
+# the package: everything else under src/models/ imports pandas, sklearn or
+# xgboost, and copying it wholesale would put the ML stack back in an image
+# built without it.
+COPY src/models/__init__.py src/models/__init__.py
+COPY src/models/outcome_model.py src/models/outcome_model.py
 # Canonical team-name resolution is shared with the offline pipeline; the
 # backend needs it to serve the admin alias-review screen.
 COPY src/teams/ src/teams/

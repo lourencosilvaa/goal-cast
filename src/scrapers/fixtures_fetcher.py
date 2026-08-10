@@ -254,8 +254,6 @@ def _fetch_odds_api_fixtures(
 def _build_flashscore_scraper() -> "BaseFixtureScraper":
     """Instantiate a FlashScoreScraper from project config."""
     from config.config_loader import load_config
-    from src.scrapers.flashscore.http_client import FlashScoreHttpClient
-    from src.scrapers.flashscore.parser import FlashScoreParser
     from src.scrapers.flashscore.playwright_client import FlashScorePlaywrightClient
     from src.scrapers.flashscore.scraper import FlashScoreScraper
 
@@ -264,19 +262,13 @@ def _build_flashscore_scraper() -> "BaseFixtureScraper":
 
     class _MergedConfig:
         base_url = fs_cfg.base_url
-        http_enabled = fs_cfg.http_enabled
         playwright_fallback_enabled = fs_cfg.playwright_fallback_enabled
         leagues = fs_cfg.leagues
         user_agent = cfg.scrapers.user_agent
         request_timeout = cfg.scrapers.request_timeout
 
     merged = _MergedConfig()
-    return FlashScoreScraper(
-        merged,
-        FlashScoreHttpClient(merged),
-        FlashScorePlaywrightClient(merged),
-        FlashScoreParser(),
-    )
+    return FlashScoreScraper(merged, FlashScorePlaywrightClient(merged))
 
 
 def _load_project_config():  # type: ignore[no-untyped-def]

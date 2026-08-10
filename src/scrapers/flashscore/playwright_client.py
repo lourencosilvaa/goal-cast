@@ -4,9 +4,12 @@ from playwright.sync_api import sync_playwright
 
 from src.scrapers.base_scraper import FlashScoreFixture
 from src.scrapers.flashscore.exceptions import FlashScoreHttpError
+from src.scrapers.flashscore.live_rows import LiveScoreRow
 
 _FIXTURES_PAGE = "football/{slug}/fixtures/"
 _RESULTS_PAGE = "football/{slug}/results/"
+#: The competition's landing page is its live score board.
+_LIVE_PAGE = "football/{slug}/"
 _MATCH_ROW_SELECTOR = ".event__match"
 
 # JavaScript run inside the browser to extract fixture rows from the rendered DOM.
@@ -30,6 +33,35 @@ _EXTRACT_SCRIPT = """() => {
 }"""
 
 
+# Live rows carry two things the fixture script ignores: the score cells and
+# the stage cell (the running minute, "Half Time", "Finished", or — before
+# kick-off — the scheduled time). Kept as a separate script rather than
+# extending the fixture one, so the results track cannot change what the
+# fixture pipeline extracts.
+_LIVE_EXTRACT_SCRIPT = """() => {
+    const nameAttr = '[data-testid="wcl-scores-simple-text-01"]';
+    const rows = document.querySelectorAll('.event__match');
+    return Array.from(rows).map(row => {
+        const homeEl  = row.querySelector('.event__homeParticipant ' + nameAttr);
+        const awayEl  = row.querySelector('.event__awayParticipant ' + nameAttr);
+        const homeSc  = row.querySelector('.event__score--home');
+        const awaySc  = row.querySelector('.event__score--away');
+        const stageEl = row.querySelector('.event__stage--block')
+                     || row.querySelector('.event__time');
+        const link    = row.querySelector('a[id]');
+        const rowId   = link ? link.id : '';
+        return {
+            matchId: rowId.replace('match-row-g_1_', ''),
+            home: homeEl ? homeEl.innerText.trim() : '',
+            away: awayEl ? awayEl.innerText.trim() : '',
+            homeScore: homeSc ? homeSc.innerText.trim() : '',
+            awayScore: awaySc ? awaySc.innerText.trim() : '',
+            stage: stageEl ? stageEl.innerText.trim() : '',
+        };
+    }).filter(r => r.home && r.away);
+}"""
+
+
 class FlashScorePlaywrightClient:
     """Scrapes FlashScore fixture/result pages via Playwright and extracts
     FlashScoreFixture objects directly from the rendered DOM."""
@@ -43,12 +75,37 @@ class FlashScorePlaywrightClient:
     def scrape_results(self, league_code: str) -> list[FlashScoreFixture]:
         return self._scrape(league_code, _RESULTS_PAGE, status="finished")
 
+    def scrape_live(self, league_code: str) -> list[LiveScoreRow]:
+        """Today's score board for one competition, as painted.
+
+        Returns transport-shaped rows rather than fixtures: what "Half Time"
+        or an empty score means is a decision for
+        :class:`~src.scrapers.results.flashscore_live.FlashscoreLiveProvider`,
+        not for the client that read the page.
+        """
+        raw_rows = self._extract(league_code, _LIVE_PAGE, _LIVE_EXTRACT_SCRIPT)
+        return [self._build_live_row(row) for row in raw_rows if self._named(row)]
+
     def _scrape(
         self, league_code: str, page_template: str, status: str
     ) -> list[FlashScoreFixture]:
         slug = self._resolve_slug(league_code)
-        url = f"{self.config.base_url}/{page_template.format(slug=slug)}"  # type: ignore[attr-defined]
         league, country = self._derive_labels(slug)
+        raw_rows = self._extract(league_code, page_template, _EXTRACT_SCRIPT)
+        return [
+            self._build_fixture(row, league=league, country=country, status=status)
+            for row in raw_rows
+            if self._named(row)
+        ]
+
+    def _extract(self, league_code: str, page_template: str, script: str) -> list[dict]:
+        """Open one rendered page and run ``script`` inside it.
+
+        Shared by fixtures, results and the live board so the browser
+        lifecycle, the timeout policy and the error translation exist once.
+        """
+        slug = self._resolve_slug(league_code)
+        url = f"{self.config.base_url}/{page_template.format(slug=slug)}"  # type: ignore[attr-defined]
 
         try:
             with sync_playwright() as p:
@@ -71,7 +128,7 @@ class FlashScorePlaywrightClient:
                 except Exception:
                     pass  # no fixtures on this page — will return empty list
 
-                raw_rows: list[dict] = page.evaluate(_EXTRACT_SCRIPT)
+                raw_rows: list[dict] = page.evaluate(script)
                 browser.close()
         except FlashScoreHttpError:
             raise
@@ -80,11 +137,34 @@ class FlashScorePlaywrightClient:
                 f"Playwright scrape failed for {league_code}: {exc}"
             ) from exc
 
-        return [
-            self._build_fixture(row, league=league, country=country, status=status)
-            for row in raw_rows
-            if row.get("home") and row.get("away")
-        ]
+        return raw_rows
+
+    @staticmethod
+    def _named(row: dict) -> bool:
+        return bool(row.get("home") and row.get("away"))
+
+    def _build_live_row(self, row: dict) -> LiveScoreRow:
+        return LiveScoreRow(
+            match_id=row.get("matchId", ""),
+            home_team=row.get("home", ""),
+            away_team=row.get("away", ""),
+            home_goals=self._parse_score(row.get("homeScore", "")),
+            away_goals=self._parse_score(row.get("awayScore", "")),
+            minute=row.get("stage", ""),
+        )
+
+    @staticmethod
+    def _parse_score(raw: str) -> int | None:
+        """A score, or ``None`` when the cell holds anything else.
+
+        Before kick-off the cell is empty, and a postponed match shows "-".
+        Neither is nil-nil, and reading them as zero would put a scoreline on
+        a match that has not been played.
+        """
+        try:
+            return int(str(raw).strip())
+        except (TypeError, ValueError):
+            return None
 
     def _build_fixture(
         self,

@@ -1,0 +1,66 @@
+# ── Results service: history + live match results ─────────────────────────────
+#
+# A separate image from the application's, which is the whole point of the
+# split: Chromium is ~400 MB and the results service is the only thing that
+# needs it. No frontend build stage and no ML stack either — this container
+# answers two HTTP endpoints.
+#
+# ── One-time Render setup ─────────────────────────────────────────────────────
+# 1. Run .github/workflows/deploy-results.yml manually once (Actions → Deploy
+#    Results Service → Run workflow) so the image exists.
+# 2. Create a Web Service on Render:
+#      Image URL: ghcr.io/<github-org>/football-prediction-agent-results:latest
+#      Registry credentials: GitHub
+#      Port: 8000
+#      Health check path: /health   (unauthenticated — see api/health.py)
+# 3. Set its environment variables:
+#      RESULTS_SERVICE_API_KEY  (generate one; the service refuses to start
+#                                without it)
+#      FOOTBALL_DATA_API_KEY    (same key the fixtures pipeline uses)
+# 4. On the MAIN service, set:
+#      RESULTS_SERVICE_URL      (this service's internal URL)
+#      RESULTS_SERVICE_API_KEY  (the same value as above)
+# 5. Copy this service's Deploy Hook URL → GitHub secret
+#      RENDER_RESULTS_DEPLOY_HOOK_URL
+# ──────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.12-slim
+
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILD_TIME=${BUILD_TIME}
+
+RUN pip install uv
+
+WORKDIR /app
+
+COPY pyproject.toml .
+COPY uv.lock* .
+
+# Only the `results` group: fastapi, uvicorn, pydantic, pyyaml, requests,
+# playwright. No pandas, no xgboost, no supabase.
+RUN uv sync --frozen --no-dev --only-group results
+
+# Run straight from the environment built above. `uv run` in CMD would re-sync
+# against the DEFAULT groups on every container start, re-downloading the full
+# ML toolchain and adding minutes to cold starts — the same trap the main
+# Dockerfile documents.
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Chromium for the Flashscore fallback. It ships disabled
+# (results.providers.flashscore.enabled: false), but a kill switch that cannot
+# be flipped without a rebuild is not a kill switch.
+RUN playwright install --with-deps chromium
+
+COPY config/ config/
+COPY src/__init__.py src/__init__.py
+COPY src/results_service/ src/results_service/
+# The provider library the service composes.
+COPY src/scrapers/ src/scrapers/
+# The wire contract, shared with the main app's gateway.
+COPY src/contracts/ src/contracts/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.results_service.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
