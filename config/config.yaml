@@ -173,11 +173,12 @@ scrapers:
   rate_limit_seconds: 1.0
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   flashscore:
+    # DOM reading through a headless browser is the only mechanism. The old
+    # HTTP feed client (api_url, token_url, http_enabled) is gone: FlashScore
+    # moved the feed_sign token into a runtime JS object, so it raised on
+    # every call and the scraper fell straight through to Playwright.
     base_url: "https://www.flashscore.com"
-    api_url: "https://d.flashscore.com/x/feed"
-    token_url: "https://www.flashscore.com"
     enabled: true
-    http_enabled: true
     playwright_fallback_enabled: true
     leagues:
       E0: "england/premier-league"
@@ -494,8 +495,160 @@ european:
     # scripts/verify_corpus_against_api_football.py, over the seasons it does
     # cover.
 
+# ── AI match analysis ────────────────────────────────────────────────────────
+# Which back-ends can write an analysis. Each reads its OWN key from
+# user_api_keys, named here — the endpoint used to fetch the Gemini key
+# whatever was asked for, which is why a stored NVIDIA key did nothing.
+#
+# Keys are per user and encrypted; nothing about them lives in this file.
+ai:
+  default_provider: gemini
+  gemini:
+    key_service: gemini
+    default_model: "gemini-2.5-flash"
+    # Reached through the official SDK, so no base URL.
+    base_url: ""
+    timeout: 60
+  nvidia:
+    key_service: nvidia
+    # NIM speaks the OpenAI chat-completions shape, so one POST does it.
+    base_url: "https://integrate.api.nvidia.com/v1"
+    # Changeable from Settings per user; this is only the fallback. The
+    # catalogue of free preview endpoints lives at build.nvidia.com and moves,
+    # so the model is a string here rather than a fixed list in code.
+    # Nemotron 3 Nano: MoE with ~3B active params — a lightweight, text-focused
+    # instruction model, far cheaper to run than the previous 70B dense Llama.
+    default_model: "nvidia/nemotron-3-nano-30b-a3b"
+    timeout: 60
+
+# ── Match results: history and live ──────────────────────────────────────────
+# Read by the DEDICATED results service (src/results_service), not by the main
+# backend. The backend only knows `results_gateway` below — it never imports a
+# provider, which is what keeps Playwright and Chromium out of its image.
+#
+# Only the *names* of environment variables appear here. Keys never do.
+results:
+  enabled: true
+  # Order is a correctness property, not a preference: both chains return the
+  # first non-empty answer, so the source with the best coverage comes first.
+  #
+  # History starts local because the training cache already holds every season
+  # of every domestic division — that answer costs no network call and no
+  # quota, and it is the same data the models were trained on.
+  history_provider_order:
+    - local_corpus
+    - football_data
+  # Live cannot start local: nothing on disk knows a match is 67 minutes old.
+  live_provider_order:
+    - football_data
+    - flashscore
+  live:
+    # The TTL. Inside it a cached snapshot is served and no request is made,
+    # so a page left open on a matchday costs one call per minute rather than
+    # one per render — which is what makes the free tier's 10/minute enough.
+    poll_interval_seconds: 60
+    # Past this, a served snapshot is flagged `stale: true` instead of being
+    # presented as current. Reached only when every live provider is failing.
+    stale_after_seconds: 300
+  cache_dir: "datasets/cache/results"
+  service:
+    # The service refuses to start when this variable is unset, rather than
+    # serving unauthenticated (§7.4 — no silent fallbacks).
+    api_key_env: "RESULTS_SERVICE_API_KEY"
+  local_corpus:
+    enabled: true
+    base_url: "https://www.football-data.co.uk/mmz4281"
+    # Searched before anything is downloaded. In development this is the
+    # training cache, so history is instant and offline; the deployed service
+    # has no such directory and downloads into `cache_dir` on first use.
+    search_dirs:
+      - "datasets/cache"
+      - "datasets/cache/results"
+    timeout: 30
+    # Codes with a football-data.co.uk feed. The UEFA competitions are absent
+    # on purpose — no such feed exists, which is why the openfootball corpus
+    # exists — and a code listed here would 404 on every history call.
+    leagues:
+      - E0
+      - E1
+      - E2
+      - E3
+      - SC0
+      - SC1
+      - SC2
+      - SC3
+      - SP1
+      - SP2
+      - D1
+      - D2
+      - I1
+      - I2
+      - F1
+      - F2
+      - N1
+      - B1
+      - P1
+      - T1
+      - G1
+  providers:
+    # Primary live source, and the history source for competitions with no
+    # CSV feed. One /v4/matches?date=... call returns every match of the day
+    # across the whole plan, which is what makes 60-second polling fit inside
+    # the free tier's 10 requests/minute.
+    football_data:
+      enabled: true
+      base_url: "https://api.football-data.org/v4"
+      api_key_env: "FOOTBALL_DATA_API_KEY"
+      timeout: 15
+      retries: 2
+      # Our league code -> football-data.org competition code. Deliberately
+      # incomplete: the free tier does not carry Scotland, Belgium, Turkey or
+      # Greece at all, and inventing codes for them would turn a known gap
+      # into a 404 on every poll. Those leagues are what the Flashscore
+      # fallback is for.
+      competitions:
+        E0: "PL"
+        E1: "ELC"
+        SP1: "PD"
+        D1: "BL1"
+        I1: "SA"
+        F1: "FL1"
+        N1: "DED"
+        P1: "PPL"
+        CL: "CL"
+    # Fallback only, and switchable off from here without touching code.
+    # Reuses scrapers.flashscore.* for slugs, base URL and the Playwright
+    # client.
+    #
+    # Enabled deliberately, with the trade-off on the record: the Flashscore
+    # ToS prohibit scraping, and the Flashscore-only route for European
+    # fixtures was reverted in August 2026 for that reason. It is on here
+    # because it is the only source that reports a match clock — the
+    # football-data.org free tier sends none — and because it covers the four
+    # served leagues that tier does not carry at all (Scotland, Belgium,
+    # Turkey, Greece).
+    #
+    # Still second in the chain, so it is consulted only when football-data
+    # answers nothing. Matches that tier *does* cover get an estimated minute
+    # instead (src/scrapers/results/elapsed.py). Set false to switch the
+    # scraping off entirely; everything keeps working with estimates alone.
+    flashscore:
+      enabled: true
+
+# ── How the main app reaches the results service ─────────────────────────────
+# The backend holds this and nothing else from the results track: an interface
+# plus two environment variable names. Swapping the HTTP gateway for an
+# in-process one would not touch the router.
+results_gateway:
+  enabled: true
+  base_url_env: "RESULTS_SERVICE_URL"
+  api_key_env: "RESULTS_SERVICE_API_KEY"
+  # Shorter than the providers' own timeouts on purpose: the app would rather
+  # answer "results service unreachable" than hold a user's request open for
+  # as long as the slowest upstream might take.
+  timeout: 10
+
 output:
   reports_dir: "output/reports"
   models_dir: "output/models"
   plots_dir: "output/plots"
-  exports_dir: "output/exports"

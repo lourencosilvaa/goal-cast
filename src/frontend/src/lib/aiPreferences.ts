@@ -29,6 +29,7 @@ export const GEMINI_MODELS = [
  * account has access to, and the backend passes it straight through.
  */
 export const NVIDIA_MODELS = [
+  { value: 'nvidia/nemotron-3-nano-30b-a3b', label: 'Nemotron 3 Nano 30B (A3B)' },
   { value: 'meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct' },
   { value: 'nvidia/llama-3.3-nemotron-super-49b-v1', label: 'Nemotron Super 49B' },
   { value: 'deepseek-ai/deepseek-r1', label: 'DeepSeek R1' },
