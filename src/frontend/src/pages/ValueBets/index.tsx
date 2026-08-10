@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import clsx from 'clsx';
-import { Button } from '@/components/ui/Button';
 import { Pill } from '@/components/ui/Pill';
 import { PageBody } from '@/components/layout/PageBody';
 import { FIELD_CLASS } from '@/components/ui/TeamCombobox';
-import { downloadExport, fetchAvailableDates } from '@/lib/api';
+import { fetchAvailableDates } from '@/lib/api';
 import { usePredictions } from '@/contexts/PredictionsContext';
 import { dateFilter } from '@/config/theme';
 import { describeDate, formatDayPill, todayStr, withToday } from '@/lib/dates';
@@ -26,7 +25,6 @@ const CONFIDENCE_CLASS: Record<string, string> = {
 export function ValueBetsPage() {
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
   const [availableDates, setAvailableDates] = useState<string[]>([]);
-  const [exporting, setExporting] = useState(false);
 
   const { data: allLeagues, loading } = usePredictions(selectedDate);
 
@@ -54,15 +52,6 @@ export function ValueBetsPage() {
   const displayDates = useMemo(() => withToday(availableDates), [availableDates]);
   const pillDates = displayDates.slice(0, dateFilter.maxPills);
   const overflowDates = displayDates.slice(dateFilter.maxPills);
-
-  async function handleExport(format: 'csv' | 'excel') {
-    setExporting(true);
-    try {
-      await downloadExport(format, selectedDate);
-    } finally {
-      setExporting(false);
-    }
-  }
 
   return (
     <PageBody intro="Jogos onde a probabilidade do modelo mais diverge da probabilidade implícita nas odds do bookmaker.">
@@ -94,22 +83,6 @@ export function ValueBetsPage() {
               ))}
             </select>
           )}
-        </div>
-
-        <div className="flex gap-2 ml-auto">
-          <Button variant="outline" size="sm" disabled={exporting} onClick={() => handleExport('csv')}>
-            <Download className="w-3.5 h-3.5" />
-            CSV
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={exporting}
-            onClick={() => handleExport('excel')}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Excel
-          </Button>
         </div>
       </div>
 

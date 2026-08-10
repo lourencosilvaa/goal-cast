@@ -14,16 +14,19 @@ import {
   saveGeminiKey,
   saveNvidiaKey,
 } from '@/lib/api';
+import type { AiProvider } from '@/lib/api';
+import {
+  AI_PROVIDER_LABELS,
+  AI_PROVIDER_STORAGE_KEY,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_NVIDIA_MODEL,
+  GEMINI_MODELS,
+  GEMINI_MODEL_STORAGE_KEY,
+  NVIDIA_MODELS,
+  NVIDIA_MODEL_STORAGE_KEY,
+  preferredProvider,
+} from '@/lib/aiPreferences';
 
-const GEMINI_MODELS = [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-  { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
-];
-
-const GEMINI_MODEL_STORAGE_KEY = 'gemini_model';
-const DEFAULT_GEMINI_MODEL = GEMINI_MODELS[0].value;
 const FEEDBACK_TIMEOUT_MS = 3000;
 
 type Feedback = { type: 'ok' | 'err'; msg: string } | null;
@@ -79,6 +82,8 @@ export function SettingsPage() {
   const [savingGemini, setSavingGemini] = useState(false);
   const [geminiFeedback, setGeminiFeedback] = useState<Feedback>(null);
 
+  const [nvidiaModel, setNvidiaModel] = useState(DEFAULT_NVIDIA_MODEL);
+  const [aiProvider, setAiProvider] = useState<AiProvider>('gemini');
   const [nvidiaKey, setNvidiaKey] = useState('');
   const [hasNvidiaKey, setHasNvidiaKey] = useState(false);
   const [savingNvidia, setSavingNvidia] = useState(false);
@@ -86,6 +91,8 @@ export function SettingsPage() {
 
   useEffect(() => {
     setGeminiModel(localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || DEFAULT_GEMINI_MODEL);
+    setNvidiaModel(localStorage.getItem(NVIDIA_MODEL_STORAGE_KEY) || DEFAULT_NVIDIA_MODEL);
+    setAiProvider(preferredProvider());
     getGeminiKeyStatus().then(setHasGeminiKey).catch(() => null);
     getNvidiaKeyStatus().then(setHasNvidiaKey).catch(() => null);
   }, []);
@@ -132,6 +139,11 @@ export function SettingsPage() {
     }
   }
 
+  function handleSaveProvider(provider: AiProvider) {
+    setAiProvider(provider);
+    localStorage.setItem(AI_PROVIDER_STORAGE_KEY, provider);
+  }
+
   async function handleSaveNvidia() {
     setSavingNvidia(true);
     try {
@@ -140,7 +152,8 @@ export function SettingsPage() {
         setNvidiaKey('');
         setHasNvidiaKey(true);
       }
-      flash(setNvidiaFeedback, 'ok', 'Chave NVIDIA guardada');
+      localStorage.setItem(NVIDIA_MODEL_STORAGE_KEY, nvidiaModel);
+      flash(setNvidiaFeedback, 'ok', 'Definições NVIDIA guardadas');
     } catch (err) {
       flash(setNvidiaFeedback, 'err', err instanceof Error ? err.message : 'Erro ao guardar');
     } finally {
@@ -233,6 +246,34 @@ export function SettingsPage() {
       </Panel>
 
       <Panel className="mt-4 flex flex-col gap-4">
+        <SectionLabel>Análise AI</SectionLabel>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-fg-muted">
+            Fornecedor predefinido
+          </label>
+          {/*
+            * A default, not a lock: the match detail offers both back-ends on
+            * every analysis, and this only decides which one is emphasised.
+            */}
+          <select
+            value={aiProvider}
+            onChange={(e) => handleSaveProvider(e.target.value as AiProvider)}
+            className="w-full px-3 py-2.5 rounded-md bg-card border border-line text-fg text-sm outline-none focus:border-accent/45 transition-colors cursor-pointer"
+          >
+            {(Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((provider) => (
+              <option key={provider} value={provider} className="bg-card text-fg">
+                {AI_PROVIDER_LABELS[provider]}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-fg-subtle">
+            Cada fornecedor usa a sua própria chave. Podes escolher o outro
+            numa análise específica sem mudar esta definição.
+          </p>
+        </div>
+      </Panel>
+
+      <Panel className="mt-4 flex flex-col gap-4">
         <SectionLabel>NVIDIA NIM</SectionLabel>
 
         <KeyField
@@ -251,6 +292,34 @@ export function SettingsPage() {
         >
           Obter chave em build.nvidia.com <ExternalLink className="w-3 h-3" />
         </a>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-fg-muted">Modelo</label>
+          {/*
+            * Editable, not a fixed dropdown: NVIDIA's free preview catalogue
+            * changes without notice, so a list compiled into the bundle goes
+            * stale between deploys. The suggestions below are a starting
+            * point; any model id the account can reach works.
+            */}
+          <input
+            list="nvidia-models"
+            value={nvidiaModel}
+            onChange={(e) => setNvidiaModel(e.target.value)}
+            placeholder={DEFAULT_NVIDIA_MODEL}
+            spellCheck={false}
+            className="w-full px-3 py-2.5 rounded-md bg-card border border-line text-fg text-sm font-mono outline-none focus:border-accent/45 transition-colors"
+          />
+          <datalist id="nvidia-models">
+            {NVIDIA_MODELS.map((model) => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
+          </datalist>
+          <p className="text-[11px] text-fg-subtle">
+            Consulta os endpoints disponíveis em build.nvidia.com/models.
+          </p>
+        </div>
 
         <div className="flex gap-2">
           <Button onClick={handleSaveNvidia} loading={savingNvidia} className="flex-1">

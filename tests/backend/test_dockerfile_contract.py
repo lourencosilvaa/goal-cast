@@ -49,6 +49,49 @@ class TestDockerfileSourceContract:
         """``src.teams`` backs the admin alias screen (src/backend/api/team_aliases.py)."""
         assert "src/teams/" in self._copied_paths()
 
+    def test_the_results_contract_is_copied(self):
+        """``src.contracts.results`` is imported by the results gateway, which
+        ``src/backend/main.py`` imports at start-up. Missing, the container
+        does not merely lose /api/results — it never boots."""
+        assert "src/contracts/" in self._copied_paths()
+
+    def test_every_src_package_the_backend_imports_is_copied(self):
+        """Catches the next one of these rather than this one.
+
+        A new top-level package under ``src/`` reaches the backend as an
+        ordinary import and passes every test on a machine with the repo
+        checked out. The image has only what is listed here."""
+        copied = self._copied_paths()
+        backend = PROJECT_ROOT / "src" / "backend"
+        imported = {
+            line.split(".")[1].split()[0].rstrip(":")
+            for path in backend.rglob("*.py")
+            for line in path.read_text().splitlines()
+            if line.startswith(("from src.", "import src."))
+        }
+        for package in sorted(imported):
+            assert any(
+                copied_path.startswith(f"src/{package}") for copied_path in copied
+            ), f"src/{package} is imported by the backend but never COPYed"
+
+    def test_the_outcome_model_is_copied(self):
+        """``src.backend.services.in_play`` imports ``OutcomeProbabilities``.
+
+        Without this the container starts and the in-play endpoint raises
+        ImportError on its first call — a build that succeeds and a feature
+        that does not."""
+        assert "src/models/outcome_model.py" in self._copied_paths()
+
+    def test_the_models_package_marker_is_copied(self):
+        """Without it ``src.models`` is not a package and the import above
+        fails even though the file is present."""
+        assert "src/models/__init__.py" in self._copied_paths()
+
+    def test_the_models_package_is_not_copied_wholesale(self):
+        """Everything else under src/models/ imports pandas, sklearn or
+        xgboost — the stack this image is built without."""
+        assert "src/models/" not in self._copied_paths()
+
 
 class TestDockerfileRuntimeContract:
 
@@ -72,6 +115,44 @@ class TestDockerfileRuntimeContract:
         assert len(sync_lines) == 1
         assert "--only-group backend" in sync_lines[0]
         assert "--no-dev" in sync_lines[0]
+
+
+class TestWorkflowTriggers:
+    """A directory inside the image but outside the filter ships by accident.
+
+    The push builds nothing, Render keeps serving the previous code, and the
+    commit carries a green tick — the same failure the results service is
+    guarded against in ``tests/results_service/test_deployment_contract.py``.
+    """
+
+    @staticmethod
+    def _trigger_paths() -> list[str]:
+        import yaml
+
+        workflow = yaml.safe_load(
+            (PROJECT_ROOT / ".github" / "workflows" / "deploy.yml").read_text()
+        )
+        # PyYAML reads the bare key `on:` as the boolean True.
+        return list(workflow[True]["push"]["paths"])
+
+    def test_every_copied_source_directory_triggers_a_build(self):
+        paths = self._trigger_paths()
+        for copied in TestDockerfileSourceContract._copied_paths():
+            if not copied.startswith(("src/", "config/")):
+                continue
+            root = "/".join(copied.rstrip("/").split("/")[:2])
+            assert any(
+                pattern.rstrip("/*").rstrip("/") in (root, copied.rstrip("/"))
+                for pattern in paths
+            ), f"{copied} is copied into the image but triggers no build"
+
+    def test_the_dockerfile_itself_triggers_a_build(self):
+        assert "Dockerfile" in self._trigger_paths()
+
+    def test_the_lockfile_triggers_a_build(self):
+        """`uv sync --frozen` installs from it, so a dependency change that
+        touches nothing else must still rebuild."""
+        assert "uv.lock" in self._trigger_paths()
 
 
 class TestTeamsRegistryShipsInImage:

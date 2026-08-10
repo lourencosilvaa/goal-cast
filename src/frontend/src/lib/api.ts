@@ -53,27 +53,135 @@ export async function refreshPredictions(leagueCode?: string): Promise<void> {
   await fetch(`${BASE}/api/predictions/refresh${params}`, { method: 'POST', headers });
 }
 
-export async function downloadExport(format: 'csv' | 'excel', date?: string): Promise<void> {
+export interface LiveMatch {
+  league: string;
+  kickoff: string;
+  home_team: string;
+  away_team: string;
+  /** scheduled | live | paused | finished | postponed | cancelled */
+  status: string;
+  home_goals: number | null;
+  away_goals: number | null;
+  /** The provider's own clock, empty when it sends none. */
+  minute: string;
+  /** Minutes played, 0-90. Always present; see `minute_estimated`. */
+  elapsed_minutes: number;
+  /** True when the minute was derived from kick-off rather than observed. */
+  minute_estimated: boolean;
+  source: string;
+  source_id: string;
+}
+
+export interface LiveEvent {
+  /** goal | kickoff | full_time */
+  type: string;
+  match: LiveMatch;
+  detected_at: string;
+}
+
+export interface LiveResults {
+  fetched_at: string;
+  source: string;
+  /** The board is older than the service's staleness window. */
+  stale: boolean;
+  matches: LiveMatch[];
+  events: LiveEvent[];
+}
+
+/**
+ * Today's scores, proxied by the backend from the dedicated results service.
+ *
+ * A failure is thrown rather than flattened to an empty list: "nothing is
+ * being played" and "we could not find out" render as the same blank board,
+ * and only one of them is true.
+ */
+export async function fetchLiveResults(leagues?: string[]): Promise<LiveResults> {
   const headers = await authHeaders();
-  const params = new URLSearchParams({ format });
-  if (date) params.set('report_date', date);
-  const res = await fetch(`${BASE}/api/export?${params}`, { headers });
-  if (!res.ok) throw new Error('Export failed');
-  const blob = await res.blob();
-  const ext = format === 'excel' ? 'xlsx' : 'csv';
-  const filename = `predictions_${date ?? 'latest'}.${ext}`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  const params = new URLSearchParams();
+  if (leagues?.length) params.set('leagues', leagues.join(','));
+  const res = await fetch(`${BASE}/api/results/live?${params}`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Resultados indisponíveis' }));
+    throw new Error(err.detail || 'Resultados indisponíveis');
+  }
+  return (await res.json()) as LiveResults;
+}
+
+export interface ProbabilityTriple {
+  home_win: number;
+  draw: number;
+  away_win: number;
+}
+
+/** A match in progress, re-priced on its current score and time remaining. */
+export interface InPlayMatch {
+  league: string;
+  /** Canonical spelling — the same key the prediction rows use. */
+  home_team: string;
+  away_team: string;
+  home_goals: number;
+  away_goals: number;
+  elapsed_minutes: number;
+  /** True when the minute was derived from kick-off rather than observed. */
+  minute_estimated: boolean;
+  status: string;
+  /** What the model said before kick-off, kept for the comparison. */
+  pre_match: ProbabilityTriple;
+  /** The same model conditioned on the score and the minutes left. */
+  live: ProbabilityTriple;
+  remaining_minutes: number;
+  /** Goals scored plus goals still expected, per side. */
+  expected_home_goals: number;
+  expected_away_goals: number;
+}
+
+/** A live match with no in-play number, and the reason there is none. */
+export interface UnpricedMatch {
+  league: string;
+  home_team: string;
+  away_team: string;
+  /** unknown_team | no_prediction | no_expected_goals */
+  reason: string;
+}
+
+export interface InPlayBoard {
+  fetched_at: string;
+  stale: boolean;
+  matches: InPlayMatch[];
+  unpriced: UnpricedMatch[];
+}
+
+/**
+ * Live re-pricing for every match in progress that could be identified.
+ *
+ * Throws on failure for the same reason `fetchLiveResults` does: an empty
+ * board is a real answer, and an unreachable service must not imitate it.
+ */
+export async function fetchInPlay(leagues?: string[]): Promise<InPlayBoard> {
+  const headers = await authHeaders();
+  const params = new URLSearchParams();
+  if (leagues?.length) params.set('leagues', leagues.join(','));
+  const res = await fetch(`${BASE}/api/in-play?${params}`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Ao vivo indisponível' }));
+    throw new Error(err.detail || 'Ao vivo indisponível');
+  }
+  return (await res.json()) as InPlayBoard;
+}
+
+/** The analysis back-ends the backend knows how to reach. */
+export type AiProvider = 'gemini' | 'nvidia';
+
+export interface AiAnalysis {
+  analysis: string;
+  /** Which back-end actually answered, for labelling the result. */
+  provider: string;
 }
 
 export async function analyzeMatch(
   matchData: Record<string, unknown>,
-  model?: string,
-): Promise<string> {
+  options: { provider?: AiProvider; model?: string } = {},
+): Promise<AiAnalysis> {
   const headers = await authHeaders();
   const res = await fetch(`${BASE}/api/ai/analyze`, {
     method: 'POST',
@@ -81,15 +189,18 @@ export async function analyzeMatch(
     body: JSON.stringify({
       match_data: matchData,
       language: 'pt-PT',
-      ...(model && { model }),
+      // Omitted rather than defaulted here: an empty model or provider means
+      // "use what the server is configured for", and duplicating that default
+      // in the client is how the two drift apart.
+      ...(options.model && { model: options.model }),
+      ...(options.provider && { provider: options.provider }),
     }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'AI analysis failed' }));
     throw new Error(err.detail || 'AI analysis failed');
   }
-  const data = await res.json();
-  return data.analysis;
+  return (await res.json()) as AiAnalysis;
 }
 
 export async function getGeminiKeyStatus(): Promise<boolean> {
@@ -182,22 +293,52 @@ export interface CustomPrediction {
   confidence: number;
   probabilities: { home_win: number; draw: number; away_win: number };
   league: string;
+  /** Set only when the two sides come from different leagues. */
+  away_league?: string | null;
+  /**
+   * Which model produced the numbers. Absent (or null) is the domestic
+   * ensemble; a cross-league tie is priced by ELO — or an ELO/Dixon-Coles
+   * blend — because the ensemble has never seen a fixture spanning two
+   * leagues. Worth showing: the two are not interchangeable.
+   */
+  model?: string | null;
 }
 
+/**
+ * One hypothetical fixture.
+ *
+ * `awayLeagueCode` names the away side's league when it differs from the home
+ * side's. Omitted means the same league, which is what a single code has
+ * always meant here — the backend decides which model that implies.
+ */
 export async function predictCustom(
   homeTeam: string,
   awayTeam: string,
   leagueCode: string,
+  awayLeagueCode?: string,
 ): Promise<CustomPrediction> {
   const headers = await authHeaders();
   const res = await fetch(`${BASE}/api/predictions/custom`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ home_team: homeTeam, away_team: awayTeam, league_code: leagueCode }),
+    body: JSON.stringify({
+      home_team: homeTeam,
+      away_team: awayTeam,
+      league_code: leagueCode,
+      away_league_code: awayLeagueCode ?? null,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Prediction failed' }));
-    throw new Error(err.detail || 'Prediction failed');
+    /*
+     * A 422 here is usually a *stated refusal* — a club with no history to
+     * predict from — and that sentence is the whole value of the response, so
+     * it must survive to the screen. FastAPI's own validation errors share the
+     * status but put a list of objects in `detail`, which would render as
+     * "[object Object]"; only a string is worth showing.
+     */
+    const detail = typeof err.detail === 'string' ? err.detail : '';
+    throw new Error(detail || 'Prediction failed');
   }
   return res.json() as Promise<CustomPrediction>;
 }

@@ -1,0 +1,259 @@
+{
+  "resultSet": {
+    "count": 15,
+    "competitions": "BSA,DED,PPL",
+    "first": "2026-08-09",
+    "last": "2026-08-09",
+    "played": 6
+  },
+  "matches": [
+    {
+      "id": 558219,
+      "utcDate": "2026-08-09T10:15:00Z",
+      "status": "FINISHED",
+      "homeTeam": {
+        "id": 6806,
+        "name": "Sparta Rotterdam",
+        "shortName": "Sparta"
+      },
+      "awayTeam": {
+        "id": 675,
+        "name": "Feyenoord Rotterdam",
+        "shortName": "Feyenoord"
+      },
+      "score": {
+        "winner": "AWAY_TEAM",
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 0,
+          "away": 1
+        },
+        "halfTime": {
+          "home": 0,
+          "away": 1
+        }
+      },
+      "competition": {
+        "code": "DED",
+        "name": "Eredivisie"
+      }
+    },
+    {
+      "id": 558220,
+      "utcDate": "2026-08-09T12:30:00Z",
+      "status": "FINISHED",
+      "homeTeam": {
+        "id": 677,
+        "name": "FC Groningen",
+        "shortName": "Groningen"
+      },
+      "awayTeam": {
+        "id": 676,
+        "name": "FC Utrecht",
+        "shortName": "Utrecht"
+      },
+      "score": {
+        "winner": "HOME_TEAM",
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 2,
+          "away": 1
+        },
+        "halfTime": {
+          "home": 1,
+          "away": 0
+        }
+      },
+      "competition": {
+        "code": "DED",
+        "name": "Eredivisie"
+      }
+    },
+    {
+      "id": 558221,
+      "utcDate": "2026-08-09T12:30:00Z",
+      "status": "FINISHED",
+      "homeTeam": {
+        "id": 684,
+        "name": "PEC Zwolle",
+        "shortName": "Zwolle"
+      },
+      "awayTeam": {
+        "id": 678,
+        "name": "AFC Ajax",
+        "shortName": "Ajax"
+      },
+      "score": {
+        "winner": "AWAY_TEAM",
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 0,
+          "away": 2
+        },
+        "halfTime": {
+          "home": 0,
+          "away": 0
+        }
+      },
+      "competition": {
+        "code": "DED",
+        "name": "Eredivisie"
+      }
+    },
+    {
+      "id": 558222,
+      "utcDate": "2026-08-09T14:45:00Z",
+      "status": "FINISHED",
+      "homeTeam": {
+        "id": 673,
+        "name": "SC Heerenveen",
+        "shortName": "Heerenveen"
+      },
+      "awayTeam": {
+        "id": 666,
+        "name": "FC Twente '65",
+        "shortName": "Twente"
+      },
+      "score": {
+        "winner": "HOME_TEAM",
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 1,
+          "away": 0
+        },
+        "halfTime": {
+          "home": 0,
+          "away": 0
+        }
+      },
+      "competition": {
+        "code": "DED",
+        "name": "Eredivisie"
+      }
+    },
+    {
+      "id": 567265,
+      "utcDate": "2026-08-09T17:00:00Z",
+      "status": "LIVE",
+      "homeTeam": {
+        "id": 503,
+        "name": "FC Porto",
+        "shortName": "Porto"
+      },
+      "awayTeam": {
+        "id": 7822,
+        "name": "FC Alverca",
+        "shortName": "Alverca"
+      },
+      "score": {
+        "winner": "HOME_TEAM",
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": 2,
+          "away": 0
+        },
+        "halfTime": {
+          "home": 2,
+          "away": 0
+        }
+      },
+      "competition": {
+        "code": "PPL",
+        "name": "Primeira Liga"
+      }
+    },
+    {
+      "id": 567261,
+      "utcDate": "2026-08-09T19:30:00Z",
+      "status": "TIMED",
+      "homeTeam": {
+        "id": 5533,
+        "name": "Gil Vicente FC",
+        "shortName": "Gil Vicente"
+      },
+      "awayTeam": {
+        "id": 496,
+        "name": "Rio Ave FC",
+        "shortName": "Rio Ave"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "competition": {
+        "code": "PPL",
+        "name": "Primeira Liga"
+      }
+    },
+    {
+      "id": 567259,
+      "utcDate": "2026-08-09T19:30:00Z",
+      "status": "TIMED",
+      "homeTeam": {
+        "id": 583,
+        "name": "Moreirense FC",
+        "shortName": "Moreirense"
+      },
+      "awayTeam": {
+        "id": 5613,
+        "name": "Sporting Clube de Braga",
+        "shortName": "Braga"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "competition": {
+        "code": "PPL",
+        "name": "Primeira Liga"
+      }
+    },
+    {
+      "id": 567262,
+      "utcDate": "2026-08-09T19:30:00Z",
+      "status": "TIMED",
+      "homeTeam": {
+        "id": 1903,
+        "name": "Sport Lisboa e Benfica",
+        "shortName": "SL Benfica"
+      },
+      "awayTeam": {
+        "id": 5527,
+        "name": "Académico de Viseu FC",
+        "shortName": "Acad. Viseu"
+      },
+      "score": {
+        "winner": null,
+        "duration": "REGULAR",
+        "fullTime": {
+          "home": null,
+          "away": null
+        },
+        "halfTime": {
+          "home": null,
+          "away": null
+        }
+      },
+      "competition": {
+        "code": "PPL",
+        "name": "Primeira Liga"
+      }
+    }
+  ]
+}

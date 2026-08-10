@@ -35,6 +35,7 @@ export function CustomPredictPage() {
   const [homeTeam, setHomeTeam] = useState('');
   const [awayTeam, setAwayTeam] = useState('');
   const [leagueCode, setLeagueCode] = useState('');
+  const [awayLeagueCode, setAwayLeagueCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CustomPrediction | null>(null);
   const [stats, setStats] = useState<MatchStats | null>(null);
@@ -48,18 +49,39 @@ export function CustomPredictPage() {
    * Derived rather than stored: the default is the first league the backend
    * offers, which is not known at mount. Deriving avoids an effect that would
    * write state as soon as the list arrives.
+   *
+   * The away league defaults to the home one, so the page opens on the
+   * ordinary same-league case and the second picker only matters when moved.
+   * Both read `domestic`, which excludes the UEFA competitions — those have no
+   * football-data division behind them, so they are not a side of a fixture.
    */
   const activeLeague = leagueCode || domestic[0]?.code || '';
-  const currentTeams = teamsFor(activeLeague);
+  const activeAwayLeague = awayLeagueCode || activeLeague;
+  const homeTeams = teamsFor(activeLeague);
+  const awayTeams = teamsFor(activeAwayLeague);
+  const isCrossLeague = activeAwayLeague !== activeLeague;
 
-  function handleLeagueChange(code: string) {
-    setLeagueCode(code);
-    setHomeTeam('');
-    setAwayTeam('');
+  function clearResults() {
     setResult(null);
     setStats(null);
     setStatsError(null);
     setError(null);
+  }
+
+  function handleLeagueChange(code: string) {
+    setLeagueCode(code);
+    setHomeTeam('');
+    // The away side is cleared too when it shares the league: its list is
+    // about to change under it. When the leagues differ it is untouched, since
+    // nothing about that side moved.
+    if (!isCrossLeague) setAwayTeam('');
+    clearResults();
+  }
+
+  function handleAwayLeagueChange(code: string) {
+    setAwayLeagueCode(code);
+    setAwayTeam('');
+    clearResults();
   }
 
   async function handlePredict() {
@@ -67,16 +89,21 @@ export function CustomPredictPage() {
     const away = awayTeam.trim();
     if (!home || !away || !activeLeague) return;
     setLoading(true);
-    setResult(null);
-    setStats(null);
-    setStatsError(null);
-    setError(null);
+    clearResults();
 
-    // The prediction and the statistics are independent reads: a statistics
-    // failure must never hide a successful prediction.
+    /*
+     * The statistics are skipped entirely for a cross-league pairing rather
+     * than requested and allowed to fail. `/match-insights` is scoped to one
+     * league and answers 404 when either club is unknown there, so the call is
+     * guaranteed to fail — firing it anyway would spend a round trip to
+     * produce an error message that says nothing true about the fixture.
+     *
+     * The two reads stay independent otherwise: a statistics failure must
+     * never hide a successful prediction.
+     */
     const [prediction, matchStats] = await Promise.allSettled([
-      predictCustom(home, away, activeLeague),
-      fetchMatchStats(home, away, activeLeague),
+      predictCustom(home, away, activeLeague, isCrossLeague ? activeAwayLeague : undefined),
+      isCrossLeague ? Promise.resolve(null) : fetchMatchStats(home, away, activeLeague),
     ]);
 
     if (prediction.status === 'fulfilled') {
@@ -106,14 +133,26 @@ export function CustomPredictPage() {
       intro="Escolhe duas equipas e gera a previsão do modelo para um confronto hipotético."
     >
       <Panel overflow="visible" className="flex flex-col gap-4">
-        <LeagueSelect value={activeLeague} onChange={handleLeagueChange} />
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-end">
+          <LeagueSelect
+            label="Liga (casa)"
+            value={activeLeague}
+            onChange={handleLeagueChange}
+          />
+          <span className="hidden sm:block pb-3 text-xs text-fg-subtle">vs</span>
+          <LeagueSelect
+            label="Liga (fora)"
+            value={activeAwayLeague}
+            onChange={handleAwayLeagueChange}
+          />
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-end">
           <TeamCombobox
             label="Casa"
             value={homeTeam}
             onChange={setHomeTeam}
-            teams={currentTeams.filter((team) => team !== awayTeam)}
+            teams={homeTeams.filter((team) => isCrossLeague || team !== awayTeam)}
             placeholder="Selecionar…"
           />
           <span className="hidden sm:block pb-3 text-xs text-fg-subtle">vs</span>
@@ -121,10 +160,18 @@ export function CustomPredictPage() {
             label="Fora"
             value={awayTeam}
             onChange={setAwayTeam}
-            teams={currentTeams.filter((team) => team !== homeTeam)}
+            teams={awayTeams.filter((team) => isCrossLeague || team !== homeTeam)}
             placeholder="Selecionar…"
           />
         </div>
+
+        {isCrossLeague && (
+          <p className="text-[11px] text-fg-subtle">
+            Confronto entre ligas diferentes: previsto por ELO calibrado entre ligas, não
+            pelo ensemble doméstico — que nunca viu um jogo destes. Sem estatísticas nem
+            histórico direto.
+          </p>
+        )}
 
         {teamsError && <p className="text-xs text-accent-red">{teamsError}</p>}
 
@@ -172,8 +219,19 @@ export function CustomPredictPage() {
           </div>
 
           <p className="font-mono text-xs text-accent">
-            {result.league} · {OUTCOME_LABELS[result.predicted_outcome] ?? result.predicted_outcome}
+            {result.away_league ? `${result.league} × ${result.away_league}` : result.league} ·{' '}
+            {OUTCOME_LABELS[result.predicted_outcome] ?? result.predicted_outcome}
           </p>
+
+          {/* Named only when it is not the ensemble. Labelling every answer
+              would make this one stop standing out, and it has to: an ELO
+              number and an ensemble number are not the same claim. */}
+          {result.model && (
+            <p className="font-mono text-[11px] text-fg-subtle">
+              modelo: {result.model} · o ensemble doméstico não se aplica a confrontos
+              entre ligas
+            </p>
+          )}
 
           <p className="text-[11px] text-fg-subtle">
             Previsão baseada em dados históricos · Aposta com responsabilidade.

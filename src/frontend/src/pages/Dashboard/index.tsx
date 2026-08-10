@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Cpu, Download, Loader2, RefreshCw } from 'lucide-react';
+import { Cpu, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { SectionLabel } from '@/components/ui/SectionLabel';
@@ -10,10 +10,12 @@ import { DashboardRail } from '@/components/dashboard/DashboardRail';
 import { MatchOfTheDay } from '@/components/dashboard/MatchOfTheDay';
 import { MatchRow } from '@/components/dashboard/MatchRow';
 import { SignalTicker } from '@/components/dashboard/SignalTicker';
+import { LiveScoreboard } from '@/components/live/LiveScoreboard';
 import { buildSignals, deriveMetrics, pickHeroMatch } from '@/components/dashboard/derive';
-import { downloadExport, fetchAvailableDates, runInference } from '@/lib/api';
+import { fetchAvailableDates, runInference } from '@/lib/api';
 import type { InferencePrediction } from '@/lib/api';
 import { usePredictions } from '@/contexts/PredictionsContext';
+import { useInPlay, inPlayKey } from '@/hooks/useInPlay';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { buildMatchId } from '@/lib/matchId';
 import { describeDate, todayStr, withToday } from '@/lib/dates';
@@ -30,7 +32,6 @@ export function Dashboard() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<MatchPrediction | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [inferring, setInferring] = useState(false);
   const [inferResults, setInferResults] = useState<InferencePrediction[] | null>(null);
   const [inferError, setInferError] = useState<string | null>(null);
@@ -65,6 +66,13 @@ export function Dashboard() {
     () => allLeagues.filter((league) => !mutedLeagues.includes(league.league_code)),
     [allLeagues, mutedLeagues],
   );
+
+  /*
+   * The live re-pricing, only for the day that can have live matches. Asked
+   * for the leagues on screen so a muted league is not polled for, and joined
+   * to the rows by canonical name — the board already speaks that spelling.
+   */
+  const { byMatch: inPlayByMatch } = useInPlay(activeLeagues, selectedDate === todayStr());
 
   const metrics = useMemo(() => deriveMetrics(visibleLeagues), [visibleLeagues]);
   const signals = useMemo(() => buildSignals(visibleLeagues), [visibleLeagues]);
@@ -105,15 +113,6 @@ export function Dashboard() {
     }
   }
 
-  async function handleExport(format: 'csv' | 'excel') {
-    setExporting(true);
-    try {
-      await downloadExport(format, selectedDate);
-    } finally {
-      setExporting(false);
-    }
-  }
-
   async function handleInference() {
     setInferring(true);
     setInferResults(null);
@@ -129,21 +128,24 @@ export function Dashboard() {
 
   const actions = (
     <>
-      <Button variant="outline" size="sm" disabled={exporting} onClick={() => handleExport('csv')}>
-        <Download className="w-3.5 h-3.5" />
-        CSV
-      </Button>
-      <Button variant="outline" size="sm" disabled={exporting} onClick={() => handleExport('excel')}>
-        <Download className="w-3.5 h-3.5" />
-        Excel
-      </Button>
       <Button variant="outline" size="sm" disabled={refreshing} onClick={handleRefresh}>
         <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
         Atualizar
       </Button>
-      <Button variant="outline" size="sm" disabled={inferring} onClick={handleInference}>
+      {/*
+        Was "Calcular ao vivo", which it never was: it re-runs the pre-match
+        model on the HF Space and knows nothing of the score. The live number
+        now lives inside each fixture row, so this says what it actually does.
+      */}
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={inferring}
+        onClick={handleInference}
+        title="Recalcula a previsão pré-jogo no modelo alojado, sem usar o resultado atual"
+      >
         <Cpu className="w-3.5 h-3.5" />
-        Calcular ao vivo
+        Recalcular (modelo HF)
       </Button>
     </>
   );
@@ -173,6 +175,15 @@ export function Dashboard() {
         <DashboardRail metrics={metrics} />
 
         <div className="flex-1 overflow-y-auto min-w-0">
+          {/*
+           * Above the predictions on purpose: on a matchday what already
+           * happened outranks what was forecast, and the board refreshes on
+           * its own while the predictions do not.
+           */}
+          <div className="px-5 md:px-7 pt-5">
+            <LiveScoreboard leagues={activeLeagues.length ? activeLeagues : undefined} />
+          </div>
+
           {loading && (
             <div className="flex items-center justify-center gap-3 py-16 text-fg-muted text-sm">
               <Loader2 className="w-5 h-5 text-accent animate-spin" />
@@ -260,6 +271,9 @@ export function Dashboard() {
                         expanded={expandedId === id}
                         onToggle={() => setExpandedId(expandedId === id ? null : id)}
                         onOpenDetail={() => openDetail(match, league.league_code)}
+                        inPlay={inPlayByMatch.get(
+                          inPlayKey(league.league_code, match.home_team, match.away_team),
+                        )}
                       />
                     );
                   })}

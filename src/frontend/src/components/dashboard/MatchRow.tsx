@@ -2,6 +2,8 @@ import clsx from 'clsx';
 import { ArrowRight } from 'lucide-react';
 import { ConfidenceBadge } from '@/components/ui/ConfidenceBadge';
 import { ProbabilityBar, ProbabilityLegend } from '@/components/ui/ProbabilityBar';
+import { InPlayBlock, inPlayClock } from '@/components/live/InPlayBlock';
+import type { InPlayMatch } from '@/lib/api';
 import type { MatchPrediction } from '@/types';
 import { outcomeShorthand } from './derive';
 
@@ -46,9 +48,21 @@ interface MatchRowProps {
   onToggle: () => void;
   /** Opens the full detail — docked panel on wide screens, sub-page below. */
   onOpenDetail: () => void;
+  /**
+   * The live re-pricing for this fixture, when it is being played *and* the
+   * board could identify it. Absent is the normal case: most rows are not
+   * live, and one that is may still have a club spelling nobody has approved.
+   */
+  inPlay?: InPlayMatch;
 }
 
-export function MatchRow({ match, expanded, onToggle, onOpenDetail }: MatchRowProps) {
+export function MatchRow({
+  match,
+  expanded,
+  onToggle,
+  onOpenDetail,
+  inPlay,
+}: MatchRowProps) {
   const signal = signalLine(match);
   const odds = oddsLine(match);
   const hasValue = match.value_bets.length > 0;
@@ -79,6 +93,14 @@ export function MatchRow({ match, expanded, onToggle, onOpenDetail }: MatchRowPr
           <span className="text-sm font-bold text-fg truncate min-w-0">{match.home_team}</span>
           <span className="text-[11px] text-fg-subtle shrink-0">vs</span>
           <span className="text-sm font-bold text-fg truncate min-w-0">{match.away_team}</span>
+          {inPlay && (
+            <span
+              className="shrink-0 px-1.5 py-0.5 rounded bg-accent-green/15 border border-accent-green/40 text-accent-green font-mono text-[9px] font-bold tabular-nums"
+              title="Jogo a decorrer — abra a linha para a previsão ao vivo"
+            >
+              {inPlay.home_goals}-{inPlay.away_goals} · {inPlayClock(inPlay)}
+            </span>
+          )}
           {hasValue && (
             <span className="shrink-0 px-1.5 py-0.5 rounded border border-accent-green/40 text-accent-green font-mono text-[9px] font-bold">
               VALUE
@@ -111,6 +133,9 @@ export function MatchRow({ match, expanded, onToggle, onOpenDetail }: MatchRowPr
       {expanded && (
         <div className="flex flex-col gap-3 pl-5 md:pl-[86px] pr-5 md:pr-7 pb-5">
           <div className="max-w-[520px]">
+            {/* Labelled only when a live bar sits below it — on its own there
+                is nothing for "pré-jogo" to distinguish it from. */}
+            {inPlay && <p className="label-mono text-fg-subtle mb-1">Pré-jogo</p>}
             <ProbabilityLegend
               probabilities={match.probabilities}
               homeLabel={match.home_team}
@@ -119,6 +144,8 @@ export function MatchRow({ match, expanded, onToggle, onOpenDetail }: MatchRowPr
             />
             <ProbabilityBar probabilities={match.probabilities} />
           </div>
+
+          {inPlay && <InPlayBlock match={inPlay} />}
 
           {signal && <p className="font-mono text-xs text-accent">{signal}</p>}
           {odds && <p className="font-mono text-xs text-fg-subtle">{odds}</p>}
