@@ -48,9 +48,7 @@ def main() -> None:
     print("\n=== Loading & preparing data ===")
     loader = FootballDataLoader(config.data)
     raw = (
-        loader.load_from_csv(args.local_data)
-        if args.local_data
-        else loader.load_all()
+        loader.load_from_csv(args.local_data) if args.local_data else loader.load_all()
     )
     if raw.empty:
         print("ERROR: No data loaded. Exiting.")
@@ -61,9 +59,7 @@ def main() -> None:
     featured = FootballELO(config.features.elo).compute_elo_features(featured)
 
     weighter = (
-        TimeDecayWeighter(config.model.time_decay)
-        if config.model.time_decay
-        else None
+        TimeDecayWeighter(config.model.time_decay) if config.model.time_decay else None
     )
     trainer = ModelTrainer(config.model, weighter=weighter)
     X, y, _ = trainer.prepare_data(featured)

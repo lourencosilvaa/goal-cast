@@ -451,12 +451,6 @@ def main() -> None:
         default=None,
         help='Odds for manual matches: "H/D/A" or "H/D/A, H/D/A" (comma-separated per match)',
     )
-    parser.add_argument(
-        "--export",
-        default=None,
-        choices=["csv", "excel"],
-        help="Export predictions to file: csv or excel",
-    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -619,28 +613,6 @@ def main() -> None:
     html_path = Path(config.output.reports_dir) / "report.html"
     generate_html_report(fixtures, predictions, match_stats_list, value_bets, html_path)
     print(f"HTML report saved to {html_path}")
-
-    # Optional file export
-    if args.export:
-        from datetime import date
-        from src.analysis.export_service import ExportService
-
-        export_service = ExportService()
-        exports_dir = Path(config.output.exports_dir)
-        exports_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = date.today().strftime("%Y-%m-%d")
-        if args.export == "csv":
-            out_path = exports_dir / f"predictions_{timestamp}.csv"
-            export_service.to_csv(
-                predictions, fixtures, value_bets, output_path=out_path
-            )
-            print(f"CSV export saved to {out_path}")
-        elif args.export == "excel":
-            out_path = exports_dir / f"predictions_{timestamp}.xlsx"
-            export_service.to_excel(
-                predictions, fixtures, value_bets, output_path=out_path
-            )
-            print(f"Excel export saved to {out_path}")
 
     # Open in browser
     import webbrowser

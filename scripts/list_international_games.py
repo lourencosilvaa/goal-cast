@@ -19,23 +19,17 @@ from src.scrapers.international_fixtures_fetcher import (
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="List upcoming national-team fixtures"
-    )
+    parser = argparse.ArgumentParser(description="List upcoming national-team fixtures")
     parser.add_argument(
         "--tournaments",
         default=None,
         help="Comma-separated tournament codes (default: all configured)",
     )
-    parser.add_argument(
-        "--date", default=None, help="Filter by date (DD/MM/YYYY)"
-    )
+    parser.add_argument("--date", default=None, help="Filter by date (DD/MM/YYYY)")
     args = parser.parse_args()
 
     tournaments = (
-        [t.strip() for t in args.tournaments.split(",")]
-        if args.tournaments
-        else None
+        [t.strip() for t in args.tournaments.split(",")] if args.tournaments else None
     )
 
     fetcher = build_international_fixtures_fetcher()

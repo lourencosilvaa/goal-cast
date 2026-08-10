@@ -46,9 +46,7 @@ def main() -> None:
     # For a real prediction, we'd need to compute features for this match.
     # This script demonstrates the prediction interface.
     # The Copilot agent would orchestrate the full pipeline.
-    print(
-        f"\nModel loaded with {len(predictor.feature_names)} features."
-    )
+    print(f"\nModel loaded with {len(predictor.feature_names)} features.")
     print(
         "Note: For full predictions, use the find_value_bets.py script "
         "which combines data loading, feature engineering, and prediction."
