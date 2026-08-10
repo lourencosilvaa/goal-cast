@@ -1,13 +1,29 @@
-"""AI analysis endpoint — uses Gemini to generate personalized match analysis."""
+"""AI analysis endpoint — Gemini or NVIDIA, whichever the user asked for.
+
+Thin by design: pick the provider, build the prompt, translate a typed failure
+into a status code. Which back-ends exist, which key each reads and what model
+each defaults to all live in :mod:`src.backend.services.ai_providers` and in
+the ``ai:`` config block, so adding one never touches this file.
+
+It used to construct a ``genai.Client`` directly and fetch the Gemini key
+regardless of what was asked for, which is why the NVIDIA key users had been
+storing since Settings grew a field for it did nothing at all.
+"""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from google.genai.errors import APIError, ClientError, ServerError
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from src.backend.api.keys import get_api_key_service
 from src.backend.core.auth import get_approved_user
+from src.backend.services.ai_providers import (
+    AnalysisRequest,
+    MissingProviderKeyError,
+    ProviderUnavailable,
+    UnknownProviderError,
+    build_analysis_provider,
+)
 from src.backend.services.api_key_service import ApiKeyService
 
 router = APIRouter(prefix="/api", tags=["ai"])
@@ -16,72 +32,51 @@ router = APIRouter(prefix="/api", tags=["ai"])
 class AIAnalysisRequest(BaseModel):
     match_data: dict
     language: str = "pt-PT"
-    model: str = "gemini-2.5-flash"
+    #: Empty means the provider's configured default, not a hardcoded name —
+    #: a model string only means something next to the provider it belongs to.
+    model: str = ""
+    #: Empty means ``ai.default_provider``.
+    provider: str = ""
 
 
 class AIAnalysisResponse(BaseModel):
     analysis: str
+    #: Echoed back so the UI can label which back-end actually answered.
+    provider: str
 
 
 @router.post("/ai/analyze", response_model=AIAnalysisResponse)
 async def analyze_match(
     body: AIAnalysisRequest,
+    request: Request,
     user_id: Annotated[str, Depends(get_approved_user)],
     service: Annotated[ApiKeyService, Depends(get_api_key_service)],
 ) -> AIAnalysisResponse:
-    """Generate AI-powered match analysis using the user's stored Gemini key."""
-    gemini_api_key = service.get_user_key(user_id=user_id)
-    if not gemini_api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="Gemini API key not configured. Add it in Settings.",
-        )
+    """Generate a match analysis with the user's stored key for that provider."""
+    config = request.app.state.config.ai
+    try:
+        provider = build_analysis_provider(body.provider, config, service)
+    except UnknownProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        from google import genai
-
-        client = genai.Client(api_key=gemini_api_key)
-
-        prompt = _build_prompt(body.match_data, body.language)
-
-        response = client.models.generate_content(
-            model=body.model,
-            contents=prompt,
+        analysis = provider.analyse(
+            AnalysisRequest(
+                prompt=_build_prompt(body.match_data, body.language),
+                model=body.model,
+                user_id=user_id,
+            )
         )
+    except MissingProviderKeyError as exc:
+        # 400, not 401: the request authenticated fine, the account simply has
+        # no key for this back-end, and the fix is in Settings.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ProviderUnavailable as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
-        return AIAnalysisResponse(analysis=response.text or "")
-    except ClientError as e:
-        if e.code in (401, 403):
-            raise HTTPException(status_code=401, detail="API key do Gemini inválida.")
-        if e.code == 404:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Modelo '{body.model}' não encontrado. Verifica o nome nas Definições.",  # noqa: E501
-            )
-        if e.code == 429:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"Limite de pedidos excedido para o modelo {body.model}."
-                    " Aguarda alguns segundos e tenta novamente."
-                ),
-            )
-        raise HTTPException(status_code=e.code, detail=e.message or str(e))
-    except ServerError as e:
-        if e.code == 503:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"O modelo {body.model} está com elevada procura."
-                    " Tenta novamente em alguns segundos ou"
-                    " escolhe outro modelo nas Definições."
-                ),
-            )
-        raise HTTPException(status_code=e.code, detail=e.message or str(e))
-    except APIError as e:
-        raise HTTPException(status_code=e.code or 500, detail=e.message or str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI analysis failed: {e}")
+    return AIAnalysisResponse(
+        analysis=analysis, provider=(body.provider or config.default_provider).lower()
+    )
 
 
 def _build_prompt(match_data: dict, language: str) -> str:
