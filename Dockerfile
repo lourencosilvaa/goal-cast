@@ -45,6 +45,13 @@ COPY src/backend/ src/backend/
 # import path of the whole app, so its absence is not a broken feature — it is
 # a container that will not start.
 COPY src/contracts/ src/contracts/
+# History + live results run inside this process (results_gateway.mode:
+# in_process), so the service and the provider library ship in this one image.
+# Pure Python on `requests` — nothing here needs a dependency the backend group
+# lacks. Playwright/Chromium are deliberately absent: the Flashscore fallback
+# is skipped with a log line and live minutes fall back to estimates.
+COPY src/results_service/ src/results_service/
+COPY src/scrapers/ src/scrapers/
 # The 1X2 probability triple, shared with the offline models. Two files, not
 # the package: everything else under src/models/ imports pandas, sklearn or
 # xgboost, and copying it wholesale would put the ML stack back in an image

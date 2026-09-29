@@ -203,7 +203,15 @@ def _flashscore_provider(config: Config) -> object | None:
     if provider_config is None or not provider_config.enabled:
         return None
 
-    from src.scrapers.flashscore.playwright_client import FlashScorePlaywrightClient
+    try:
+        from src.scrapers.flashscore.playwright_client import (
+            FlashScorePlaywrightClient,
+        )
+    except ImportError:
+        # The combined image ships without Playwright/Chromium. Skipping is a
+        # stated degradation (minutes fall back to estimates), not a crash.
+        print("[results] flashscore skipped: playwright is not installed")
+        return None
 
     flashscore = config.scrapers.flashscore
     settings = FlashscoreClientSettings(

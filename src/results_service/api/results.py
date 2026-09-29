@@ -36,6 +36,7 @@ from src.results_service.service import (
 from src.scrapers.results.elapsed import estimate_elapsed_minutes, utc_now
 from src.scrapers.results.models import (
     HistoryQuery,
+    LiveUpdate,
     MatchEvent,
     MatchResult,
     MatchStatus,
@@ -69,13 +70,7 @@ def live(
     ),
 ) -> LiveResultsResponse:
     update = _guard(lambda: service.live(_split(leagues)))
-    return LiveResultsResponse(
-        fetched_at=update.snapshot.fetched_at,
-        source=update.snapshot.source,
-        stale=update.stale,
-        matches=[_match(m) for m in update.snapshot.matches],
-        events=[_event(e) for e in update.events],
-    )
+    return live_response(update)
 
 
 @router.get("/history", response_model=HistoryResponse)
@@ -85,10 +80,22 @@ def history(
     season: Annotated[str, Query(description="Season in YYZZ form, e.g. 2526")],
 ) -> HistoryResponse:
     result = _guard(lambda: service.history(HistoryQuery(league=league, season=season)))
-    return _history_response(result)
+    return history_response(result)
 
 
 # ── translation ──────────────────────────────────────────────────────────
+
+
+def live_response(update: LiveUpdate) -> LiveResultsResponse:
+    """A live update on the wire. Public: the in-process gateway serves the
+    same contract without the HTTP hop, and must not re-implement it."""
+    return LiveResultsResponse(
+        fetched_at=update.snapshot.fetched_at,
+        source=update.snapshot.source,
+        stale=update.stale,
+        matches=[_match(m) for m in update.snapshot.matches],
+        events=[_event(e) for e in update.events],
+    )
 
 
 def _guard(call: Callable[[], _Payload]) -> _Payload:
@@ -156,7 +163,7 @@ def _event(event: MatchEvent) -> EventModel:
     )
 
 
-def _history_response(result: HistoryResult) -> HistoryResponse:
+def history_response(result: HistoryResult) -> HistoryResponse:
     return HistoryResponse(
         league=result.league,
         season=result.season,

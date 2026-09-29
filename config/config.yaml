@@ -641,6 +641,10 @@ results:
 # in-process one would not touch the router.
 results_gateway:
   enabled: true
+  # in_process: the results service runs inside this app (single image, no
+  # RESULTS_SERVICE_URL / RESULTS_SERVICE_API_KEY needed). http: call a
+  # separately deployed results service.
+  mode: "in_process"
   base_url_env: "RESULTS_SERVICE_URL"
   api_key_env: "RESULTS_SERVICE_API_KEY"
   # Shorter than the providers' own timeouts on purpose: the app would rather
