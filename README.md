@@ -228,7 +228,6 @@ football-prediction-agent/
 │       ├── retrain.yml            # Weekly retrain (skips upload/redeploy if no new data)
 │       ├── run-inference.yml      # Daily inference → Supabase upload
 │       ├── deploy.yml             # Build Docker image → Render redeploy
-│       ├── deploy-results.yml     # Build Dockerfile.results → results Render service
 │       └── deploy-hf-space.yml    # Sync hf_space/ → HuggingFace Space
 ├── config/
 │   ├── config.yaml                # Centralized configuration
@@ -278,7 +277,7 @@ football-prediction-agent/
 │   ├── models/                    # ML pipeline (data_loader, feature_engineer, trainer, predictor)
 │   ├── contracts/                 # Wire models shared by BOTH deployed images
 │   │   └── results.py             # /live and /history payloads
-│   ├── results_service/           # Dedicated results microservice (Dockerfile.results)
+│   ├── results_service/           # Results service (runs in-process in the app image)
 │   │   ├── api/                   # /live, /history (X-API-Key), /health (open)
 │   │   ├── auth.py                # Service key — absent means the service will not start
 │   │   ├── factory.py             # Builds chains, tracker and catalogue from config
@@ -306,7 +305,6 @@ football-prediction-agent/
 ├── datasets/cache/                # Local CSV cache (ephemeral on Render)
 ├── output/                        # Reports, trained models, evaluation
 ├── Dockerfile                     # Slim backend image (no ML deps, no Chromium)
-├── Dockerfile.results             # Results service image (Playwright + Chromium live here)
 └── pyproject.toml                 # Python deps managed by uv
 ```
 
@@ -344,7 +342,7 @@ The app runs as two separate services on **Render**, backed by **Supabase** (aut
 |---------|------|---------|
 | Backend API | Render Web Service | Docker (`Dockerfile` at repo root) |
 | Frontend | Render Static Site | Node build from `src/frontend` |
-| Results service | Render Web Service | Docker (`Dockerfile.results`) — see [Results service](#results-service-history--live) |
+| Results | runs inside the app service | in-process — see [Results](#results-history--live) |
 | Database & Auth | Supabase | — |
 | On-demand Inference | HuggingFace Space | Docker (`hf_space/`) |
 | ML Model + Datasets | Hugging Face Hub | Private repo (`datasets/` subfolder) |
@@ -413,27 +411,28 @@ Two findings worth knowing before you rely on any of them:
 The chain returns the first non-empty answer, so provider order is a correctness
 property rather than a preference — it lives in `european.provider_order`.
 
-#### Results service (history + live)
+#### Results (history + live)
 
-Match results — finished seasons and today's scores — are served by a **second
-Render service** built from `Dockerfile.results`, not by the backend. The
-frontend still talks only to the backend, which proxies `/api/results/*` to it.
+Match results — finished seasons and today's scores — run **inside the backend
+process** (`results_gateway.mode: in_process`, the default), so the whole
+product ships as one image and one Render service. `/api/results/*` and
+`/api/in-play` call the results service in-process through
+`InProcessResultsGateway`; there is no second deployment, no service URL and no
+service key to configure.
 
-Why a separate deployment:
-
-- The Flashscore fallback needs Playwright and Chromium (~400 MB). Keeping it
-  out of the application image is the concrete win; the backend never imports
-  a provider, and `tests/results_service/test_deployment_contract.py` fails if
-  it starts to.
-- A blocked scraper or an exhausted quota degrades results only. The backend
-  answers `503` with a message and the rest of the product carries on.
+The only thing given up compared to a separate image is Playwright/Chromium:
+the Flashscore fallback is skipped at start-up with a `[results] flashscore
+skipped` log line and live minutes come from estimates. To go back to a separate
+deployment, set `results_gateway.mode: "http"` and provide `RESULTS_SERVICE_URL`
+and `RESULTS_SERVICE_API_KEY` (the standalone app is still
+`src.results_service.main:app`).
 
 | Concern | Where it lives |
 |---|---|
 | Provider library (chains, tracker, parsers) | `src/scrapers/results/` |
 | The service itself (FastAPI app, auth, repository) | `src/results_service/` |
-| Wire contract, shared by both images | `src/contracts/results.py` |
-| The app's client | `src/backend/services/results_gateway.py` |
+| Wire contract | `src/contracts/results.py` |
+| The app's client (in-process or HTTP) | `src/backend/services/results_gateway.py` |
 | The frontend-facing proxy | `src/backend/api/results.py` |
 | Settings | `results:` and `results_gateway:` in `config/config.yaml` |
 
@@ -465,27 +464,14 @@ something to serve if the provider happens to be unreachable at that moment.
 
 **Environment variables** (see `.env.example`):
 
-| Variable | Set on | Purpose |
-|---|---|---|
-| `RESULTS_SERVICE_API_KEY` | **both** services | Shared service-to-service secret. The results service **refuses to start** without it rather than exposing a scraper and a metered quota. |
-| `RESULTS_SERVICE_URL` | main service | Where the results service lives (Render's internal URL). |
-| `FOOTBALL_DATA_API_KEY` | results service | The same key the fixtures pipeline uses. |
+| Variable | Purpose |
+|---|---|
+| `FOOTBALL_DATA_API_KEY` | football-data.org key for live/current-season results — the same one the fixtures pipeline uses. Set on the backend service. |
 
-Deployment is `.github/workflows/deploy-results.yml` → `ghcr.io/<repo>-results`
-→ the `RENDER_RESULTS_DEPLOY_HOOK_URL` secret. `deploy.yml` is untouched; the
-one-time Render setup is documented at the top of `Dockerfile.results`.
-
-Run both locally with:
+Run it locally with:
 
 ```bash
-# terminal 1 — the results service
-RESULTS_SERVICE_API_KEY=local-dev-key \
-  uv run uvicorn src.results_service.main:app --port 8100
-
-# terminal 2 — the backend, pointed at it
-RESULTS_SERVICE_URL=http://127.0.0.1:8100 \
-RESULTS_SERVICE_API_KEY=local-dev-key \
-  uv run uvicorn src.backend.main:app --port 8000
+uv run uvicorn src.backend.main:app --port 8000
 
 curl "http://127.0.0.1:8000/api/results/live?leagues=P1"
 curl "http://127.0.0.1:8000/api/results/history?league=P1&season=2526"

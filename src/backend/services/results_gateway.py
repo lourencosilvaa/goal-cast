@@ -23,8 +23,9 @@ better served by a fast, honest failure than by a third attempt.
 """
 
 import os
+import threading
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Mapping, Sequence, TypeVar
+from typing import Any, Callable, ClassVar, Mapping, Sequence, TypeVar
 
 import requests
 from pydantic import BaseModel, ValidationError
@@ -183,3 +184,58 @@ class HttpResultsGateway(ResultsGateway):
                 f"{name} is not set, so the results service cannot be reached."
             )
         return value
+
+
+class InProcessResultsGateway(ResultsGateway):
+    """Runs the results service inside the app's own process.
+
+    The second implementation the interface was written for: same contract,
+    no HTTP hop, no second deployment, no service key (nothing is exposed that
+    the app's own authentication does not already guard). Failures keep the
+    gateway's vocabulary — a refused league is a rejection, anything else is
+    unavailability — so the routers above cannot tell the two apart.
+
+    The service is built on first use, once, and kept: the live tracker's TTL
+    cache lives in it, so rebuilding per request would defeat the cache and
+    burn the provider's quota. A build that fails is not cached, so a fixed
+    variable recovers without a restart.
+    """
+
+    def __init__(self, service_factory: Callable[[], Any]) -> None:
+        self._factory = service_factory
+        self._service: Any = None
+        self._lock = threading.Lock()
+
+    def live(self, leagues: Sequence[str]) -> LiveResultsResponse:
+        from src.results_service.api.results import live_response
+
+        return self._call(lambda svc: live_response(svc.live(list(leagues))))
+
+    def history(self, league: str, season: str) -> HistoryResponse:
+        from src.results_service.api.results import history_response
+        from src.scrapers.results.models import HistoryQuery
+
+        return self._call(
+            lambda svc: history_response(
+                svc.history(HistoryQuery(league=league, season=season))
+            )
+        )
+
+    def _call(self, call: Callable[[Any], _Contract]) -> _Contract:
+        from src.results_service.service import UnknownLeagueError, UnknownSeasonError
+
+        try:
+            return call(self._resolve())
+        except (UnknownLeagueError, UnknownSeasonError) as exc:
+            raise ResultsRequestRejected(str(exc)) from exc
+        except Exception as exc:
+            raise ResultsServiceUnavailable(
+                f"in-process results service failed: {exc}"
+            ) from exc
+
+    def _resolve(self) -> Any:
+        if self._service is None:
+            with self._lock:
+                if self._service is None:
+                    self._service = self._factory()
+        return self._service

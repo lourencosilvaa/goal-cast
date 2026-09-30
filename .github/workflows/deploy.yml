@@ -29,6 +29,8 @@ on:
       # Render keeps serving the old code behind a green tick.
       - "src/__init__.py"
       - "src/contracts/**"
+      - "src/results_service/**"
+      - "src/scrapers/**"
       - "src/models/**"
       - "src/teams/**"
       - "config/**"

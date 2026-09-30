@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import yaml
 from pydantic import (
@@ -723,7 +723,10 @@ class ResultsGatewayConfig(BaseModel):
     """
 
     enabled: bool = True
-    #: Environment variable holding the service's base URL.
+    #: ``in_process`` runs the results service inside the app's own process —
+    #: one image, one deployment. ``http`` calls a separately deployed service.
+    mode: Literal["in_process", "http"] = "in_process"
+    #: Environment variable holding the service's base URL (``http`` only).
     base_url_env: str = "RESULTS_SERVICE_URL"
     #: Environment variable holding the shared service key.
     api_key_env: str = "RESULTS_SERVICE_API_KEY"

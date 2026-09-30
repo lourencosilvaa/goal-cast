@@ -15,9 +15,11 @@ from typing import Annotated, Callable, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from config.config_loader import Config
 from src.backend.core.auth import get_approved_user
 from src.backend.services.results_gateway import (
     HttpResultsGateway,
+    InProcessResultsGateway,
     MissingGatewayConfigError,
     ResultsGateway,
     ResultsRequestRejected,
@@ -34,12 +36,27 @@ _Payload = TypeVar("_Payload")
 def get_results_gateway(request: Request) -> ResultsGateway:
     """The configured gateway.
 
-    Built per request rather than at start-up because it is a stateless
-    wrapper around one HTTP call, and because reading the environment here
-    means a variable added on the platform takes effect on the next request
-    instead of the next deploy.
+    ``http`` is built per request: a stateless wrapper around one call, and
+    reading the environment there means a variable added on the platform takes
+    effect on the next request. ``in_process`` is built once and kept on the
+    app, because it owns the live tracker's cache.
     """
-    return HttpResultsGateway(request.app.state.config.results_gateway)
+    state = request.app.state
+    if state.config.results_gateway.mode == "http":
+        return HttpResultsGateway(state.config.results_gateway)
+    gateway: ResultsGateway | None = getattr(state, "results_gateway", None)
+    if gateway is None:
+        gateway = InProcessResultsGateway(lambda: _build_service(state.config))
+        state.results_gateway = gateway
+    return gateway
+
+
+def _build_service(config: Config) -> object:
+    # Imported here so a deployment on ``http`` mode never loads the provider
+    # library.
+    from src.results_service.factory import build_service
+
+    return build_service(config)
 
 
 @router.get("/live", response_model=LiveResultsResponse)
